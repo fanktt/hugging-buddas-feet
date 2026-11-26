@@ -1,13 +1,109 @@
 <!doctype html>
 <html lang="zh-Hant">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#f8f6ef">
 <title>臨時抱佛腳｜N3 考前衝刺室</title>
 <link rel="stylesheet" href="style.css">
-<script src="knowledge.js" defer></script><script src="reading.js" defer></script><script src="resources.js" defer></script><script src="topic.js" defer></script><script src="app.js" defer></script>
+
+<!-- 1. Question bank registry -->
+<script src="bank.js" defer></script>
+
+<!-- 2. Legacy question sets (merged by topic.js via Bank.legacy) -->
+<script src="knowledge.js" defer></script>
+<script src="reading.js" defer></script>
+
+<!-- 3. Question bank data: one file per set. Missing files are skipped safely. -->
+<script src="data/vocab-kanji-a.js" defer></script>
+<script src="data/vocab-kanji-b.js" defer></script>
+<script src="data/vocab-write-a.js" defer></script>
+<script src="data/vocab-write-b.js" defer></script>
+<script src="data/vocab-context-a.js" defer></script>
+<script src="data/vocab-context-b.js" defer></script>
+<script src="data/vocab-paraphrase.js" defer></script>
+<script src="data/vocab-usage.js" defer></script>
+<script src="data/grammar-form-a.js" defer></script>
+<script src="data/grammar-form-b.js" defer></script>
+<script src="data/grammar-form-c.js" defer></script>
+<script src="data/grammar-order.js" defer></script>
+<script src="data/grammar-text.js" defer></script>
+<script src="data/reading-short.js" defer></script>
+<script src="data/reading-mid.js" defer></script>
+<script src="data/reading-long.js" defer></script>
+<script src="data/reading-info.js" defer></script>
+<script src="data/listening-task.js" defer></script>
+<script src="data/listening-point.js" defer></script>
+<script src="data/listening-gist.js" defer></script>
+<script src="data/listening-response.js" defer></script>
+<script src="data/notes-grammar-a.js" defer></script>
+<script src="data/notes-grammar-b.js" defer></script>
+<script src="data/notes-confuse.js" defer></script>
+<!-- end of question bank data -->
+
+<!-- 3b. Furigana for the bank text ({漢字|かんじ} marks). Missing or unfinished files fall back to plain text. -->
+<script src="ruby/instructions.js" defer></script>
+<script src="ruby/knowledge.js" defer></script>
+<script src="ruby/reading.js" defer></script>
+<script src="ruby/vocab-kanji-a.js" defer></script>
+<script src="ruby/vocab-kanji-b.js" defer></script>
+<script src="ruby/vocab-write-a.js" defer></script>
+<script src="ruby/vocab-write-b.js" defer></script>
+<script src="ruby/vocab-context-a.js" defer></script>
+<script src="ruby/vocab-context-b.js" defer></script>
+<script src="ruby/vocab-paraphrase.js" defer></script>
+<script src="ruby/vocab-usage.js" defer></script>
+<script src="ruby/grammar-form-a.js" defer></script>
+<script src="ruby/grammar-form-b.js" defer></script>
+<script src="ruby/grammar-form-c.js" defer></script>
+<script src="ruby/grammar-order.js" defer></script>
+<script src="ruby/grammar-text.js" defer></script>
+<script src="ruby/reading-short.js" defer></script>
+<script src="ruby/reading-mid.js" defer></script>
+<script src="ruby/reading-long.js" defer></script>
+<script src="ruby/reading-info.js" defer></script>
+<script src="ruby/listening-task.js" defer></script>
+<script src="ruby/listening-point.js" defer></script>
+<script src="ruby/listening-gist.js" defer></script>
+<script src="ruby/listening-response.js" defer></script>
+<script src="ruby/notes-grammar-a.js" defer></script>
+<script src="ruby/notes-grammar-b.js" defer></script>
+<script src="ruby/notes-confuse.js" defer></script>
+<!-- end of furigana -->
+
+<!-- 4. Topic pack and app -->
+<script src="resources.js" defer></script>
+<script src="topic.js" defer></script>
+<script src="store.js" defer></script>
+<script src="speech.js" defer></script>
+<script src="core.js" defer></script>
+<script src="practice.js" defer></script>
+<script src="mock.js" defer></script>
+<script src="notes.js" defer></script>
+<script src="app.js" defer></script>
 </head>
 <body>
-<header><div class="bar"><a class="brand" href="#home"><span class="seal" aria-hidden="true">抱</span><span>臨時抱佛腳<small>STUDY SPRINT</small></span></a><nav aria-label="主選單"><a href="#home">練習總覽</a><a href="#mistakes">錯題本</a><a href="#resources">備考資源</a></nav><span id="course"></span></div></header>
-<main id="app"></main><footer><span>臨時抱佛腳 · Study Sprint</span><span id="footerTopic"></span></footer>
-</body></html>
+<header>
+  <div class="bar">
+    <a class="brand" href="#home">
+      <span class="seal" aria-hidden="true">抱</span>
+      <span>臨時抱佛腳<small>STUDY SPRINT</small></span>
+    </a>
+    <nav aria-label="主選單">
+      <a href="#home" data-nav="home">作戰板</a>
+      <a href="#mock" data-nav="mock">模擬考</a>
+      <a href="#notes/grammar" data-nav="notes">佛腳筆記</a>
+      <a href="#mistakes" data-nav="mistakes">錯題本</a>
+      <a href="#resources" data-nav="resources">資源</a>
+      <a href="#settings" data-nav="settings">設定</a>
+    </nav>
+    <span id="course"></span>
+  </div>
+</header>
+<main id="app" tabindex="-1">
+  <noscript><p class="warn">這個練習網站需要啟用 JavaScript。</p></noscript>
+</main>
+<div id="announcer" class="visually-hidden" aria-live="assertive"></div>
+<footer><span>臨時抱佛腳 · Study Sprint</span><span id="footerTopic"></span></footer>
+</body>
+</html>

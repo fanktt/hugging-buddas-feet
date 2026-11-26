@@ -1,140 +1,439 @@
+// Router and the remaining pages: 作戰板 (home), subject pages, 錯題本, 設定, 備考資源.
 (() => {
-  const pack = globalThis.topic;
-  const bank = new Map(pack.questions.map(q => [q.id,q]));
-  const app = document.querySelector('#app');
-  const key = 'study-sprint.v1.' + pack.id;
-  const escape = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const category = id => pack.categories.find(cat => cat.id === id);
-  const name = mode => category(mode)?.name || (mode === 'mistakes' ? '錯題重練' : '混合衝刺');
-  let state = {records:{}, sessions:{},days:{}};
-  let storageUnavailable = false;
-  try {
-    const saved = JSON.parse(localStorage.getItem(key));
-    if (saved?.records && saved?.sessions && saved?.days) state = saved;
-  } catch { storageUnavailable = true; }
-  function save() {
-    try { localStorage.setItem(key,JSON.stringify(state)); }
-    catch { storageUnavailable = true; }
-  }
-  function today() { return new Date().toLocaleDateString('sv-SE'); }
-  function mistakes() { return pack.questions.filter(q=>state.records[q.id]?.wrong); }
-  function shuffle(items) {
-    const result = [...items];
-    for(let i=result.length-1;i>0;i--) {
-      const j=Math.floor(Math.random()*(i+1));
-      [result[i],result[j]]=[result[j],result[i]];
+  const A = globalThis.App;
+  const {pack, Store, Speech, esc, pct} = A;
+  const app = document.getElementById('app');
+  const settings = () => Store.state.settings;
+  let showMigrated = Store.migrated;
+  const mistakeFilter = {cat: '', type: ''};
+
+  // ---------- home ----------
+  function countdown() {
+    const days = Store.daysToExam();
+    const date = settings().examDate;
+    const weekday = '日一二三四五六'[new Date(date + 'T00:00:00').getDay()];
+    if (days < 0) {
+      return '<div class="countdown past"><span class="cdLabel">考試日已過</span>' +
+        '<a href="#settings">更新考試日</a></div>';
     }
-    return result;
+    return `<div class="countdown" aria-label="距考試還有 ${days} 天"><span class="cdLabel">距 N3 考試</span>` +
+      `<strong>${days}</strong><span class="cdUnit">${days === 0 ? '就是今天' : '天'}</span>` +
+      `<span class="cdDate">${esc(date.replaceAll('-', '.'))}（${weekday}）</span></div>`;
   }
-  function prioritize(pool) {
-    return shuffle(pool).sort((a,b)=>(state.records[a.id]?.count||0)-(state.records[b.id]?.count||0));
-  }
-  function start(mode) {
-    if (!state.sessions[mode] || state.sessions[mode].done) {
-      let pool;
-      if (mode === 'mixed') {
-        pool=shuffle(pack.categories.flatMap(cat=>prioritize(pack.questions.filter(q=>q.cat===cat.id)).slice(0,cat.quota)));
-      } else {
-        pool=prioritize(mode==='mistakes'?mistakes():pack.questions.filter(q=>q.cat===mode)).slice(0,pack.round);
-      }
-      if (!pool.length) { location.hash='mistakes'; render(); return; }
-      state.sessions[mode]={ids:pool.map(q=>q.id),answers:[],index:0,done:false};
-      save();
-    }
-    const hash='#practice/'+mode;
-    if (location.hash===hash) render();
-    else location.hash=hash;
-  }
-  function startButton(mode,label) {
-    return '<button class="primary" data-start="'+mode+'"><span class="play" aria-hidden="true">▶</span>'+label+'</button>';
-  }
-  function title(zh,en,tail='') {
-    return '<div class="sectionTitle"><h2>'+zh+'</h2><span class="english">'+en+'</span><span class="tail">'+tail+'</span></div>';
-  }
-  function sectionHead(zh,en,desc) {
-    return '<div class="pageHead"><span class="eyebrow">'+en+'</span><h1>'+zh+'</h1><p>'+desc+'</p></div>';
-  }
-  function total(records,field) {return records.reduce((n,r)=>n+r[field],0);}
+
   function home() {
-    const records=Object.values(state.records);
-    const count=total(records,'count');
-    const day=state.days[today()]||0;
-    const resume=state.sessions.mixed && !state.sessions.mixed.done;
-    return '<section class="hero"><img class="heroArt" src="'+pack.art+'" alt=""><div class="heroCopy"><span class="eyebrow">'+escape(pack.label)+' · 集中特訓</span><h1>'+escape(pack.title)+'</h1><p>'+escape(pack.intro)+'<br>每回 '+pack.round+' 題，答完即看解析。</p><div class="heroActions">'+startButton('mixed',resume?'繼續混合衝刺':'開始混合衝刺')+'<small>'+pack.categories.map(c=>c.shortName+' '+c.quota).join('・')+'</small></div></div></section>'+
-      title('分科特訓','Practice sets','共 '+bank.size+' 題')+
-      '<div class="cards">'+pack.categories.map(cat=>{
-        const active=state.sessions[cat.id]&&!state.sessions[cat.id].done;
-        return '<button data-start="'+cat.id+'" class="card '+cat.color+'"><div class="cardHead"><span class="glyph" aria-hidden="true">'+cat.glyph+'</span><div><span class="english">'+cat.english+'</span><h3>'+cat.name+'</h3></div></div><p>'+cat.desc+'</p><div class="cardFoot"><span>'+pack.questions.filter(q=>q.cat===cat.id).length+' 道練習題</span><b>'+(active?'繼續練習':'開始練習')+'</b></div></button>';
-      }).join('')+'</div>'+title('練習紀錄','Study record')+
-      '<section class="stats"><div class="metric"><label>今日刷題目標</label><strong>'+day+' <small>/ '+pack.dailyGoal+' 題</small></strong><div class="track"><i style="width:'+Math.min(100,day/pack.dailyGoal*100)+'%"></i></div></div><div class="metric"><label>累計作答</label><strong>'+count+' <small>題</small></strong></div><div class="metric"><label>整體正確率</label><strong>'+(count?Math.round(total(records,'correct')/count*100)+'<small> %</small>':'—')+'</strong></div><div class="metric"><label><a href="#mistakes">待複習錯題</a></label><strong>'+mistakes().length+' <small>題</small></strong></div></section>';
+    const st = A.stats();
+    const s = Store.state;
+    const doneToday = s.days[Store.today()] || 0;
+    const goal = settings().dailyGoal;
+    const streak = Store.streak();
+    const daily = s.sessions.daily;
+    const resume = daily && !daily.done && daily.created === Store.today();
+    const answeredInDaily = resume ? daily.answers.filter(Boolean).length : 0;
+    const misses = A.questions.reduce((n, q) => n + (s.records[q.id]?.miss ? 1 : 0), 0);
+
+    let html = '';
+    if (showMigrated) {
+      html += '<p class="notice">已把舊版的練習紀錄搬到新版：答錯過的題目今天就會出現在複習裡。</p>';
+      showMigrated = false;
+    }
+    html += `<section class="hero board"><img class="heroArt" src="${esc(pack.art)}" alt="">` +
+      `<div class="heroCopy"><span class="eyebrow">${esc(pack.label)} · 今日作戰板</span>` +
+      `<h1 tabindex="-1">${esc(pack.title)}</h1>` +
+      '<ul class="todayList">' +
+      `<li><span>到期複習</span><b>${st.due}</b><small>題</small></li>` +
+      `<li class="goal"><span>今日目標</span><b>${doneToday}</b><small>/ ${goal} 題</small>${A.track(doneToday / goal * 100, '今日目標進度')}</li>` +
+      `<li><span>連續天數</span><b>${streak}</b><small>天</small></li></ul>` +
+      '<div class="heroActions">' +
+      `<button type="button" class="primary big" data-action="start-daily"><span class="play" aria-hidden="true">▶</span>` +
+      `${resume ? `繼續今日衝刺（${answeredInDaily} / ${daily.ids.length}）` : '開始今日衝刺'}</button>` +
+      `<small>每回 ${pack.sprintSize} 題：到期複習 → 弱點題型新題 → 其他新題，四科輪流出。</small></div></div>` +
+      countdown() + '</section>';
+
+    html += A.sectionTitle('四科掌握度', 'Subjects', `題庫共 ${A.byId.size} 題`);
+    html += '<div class="cards four">' + pack.categories.map(c => {
+      const cs = st.cats[c.id];
+      if (!cs) {
+        return `<div class="card ${c.color} pending"><div class="cardHead"><span class="glyph" aria-hidden="true">${c.glyph}</span>` +
+          `<div><span class="english">${c.english}</span><h3>${esc(c.name)}</h3></div></div>` +
+          `<p>${esc(c.desc)}</p><div class="cardFoot"><span>題目準備中</span></div></div>`;
+      }
+      return `<a class="card ${c.color}" href="#cat/${c.id}"><div class="cardHead"><span class="glyph" aria-hidden="true">${c.glyph}</span>` +
+        `<div><span class="english">${c.english}</span><h3>${esc(c.name)}</h3></div></div>` +
+        `<div class="mastery"><span>掌握</span><b>${pct(cs.mastered, cs.total)}%</b>` +
+        `<small>${cs.mastered} / ${cs.total} 題</small></div>` +
+        `<div class="track dual" role="img" aria-label="已掌握 ${cs.mastered} 題，已做過 ${cs.seen} 題，共 ${cs.total} 題">` +
+        `<i class="seen" style="width:${pct(cs.seen, cs.total)}%"></i><i style="width:${pct(cs.mastered, cs.total)}%"></i></div>` +
+        `<div class="cardFoot"><span>已做 ${cs.seen}・正確率 ${cs.count ? pct(cs.correct, cs.count) + '%' : '—'}` +
+        `${cs.due ? `・<em>到期 ${cs.due}</em>` : ''}</span><b>特訓 →</b></div></a>`;
+    }).join('') + '</div>';
+
+    html += '<div class="split2">';
+    html += '<section>' + A.sectionTitle('弱點題型', 'Weak spots');
+    const weak = st.weak.slice(0, 5);
+    html += weak.length
+      ? '<ol class="weakList">' + weak.map(w => {
+        const t = A.typeInfo(w.type);
+        return `<li><div class="weakName"><b>${esc(w.type)}</b><small>${esc(A.category(t.cat)?.shortName || '')}・作答 ${w.count} 次</small></div>` +
+          `<span class="miniBar ${w.acc < 0.6 ? 'bad' : ''}"><i style="width:${Math.round(w.acc * 100)}%"></i></span>` +
+          `<span class="weakPct">${Math.round(w.acc * 100)}%</span>` +
+          `<button type="button" class="textBtn" data-action="start-drill" data-cat="${esc(t.cat)}" data-type="${esc(w.type)}" data-n="10">練 10 題</button></li>`;
+      }).join('') + '</ol>'
+      : `<div class="panel empty small"><p class="sub">同一題型作答滿 ${st.minSample} 次後，正確率最低的題型會排在這裡。</p></div>`;
+    html += '</section>';
+
+    const last = s.mockHistory[s.mockHistory.length - 1];
+    const notesCount = pack.notes.length;
+    html += '<section>' + A.sectionTitle('其他入口', 'More') + '<div class="entryTiles">' +
+      `<a class="tile" href="#mock"><span class="tileGlyph" aria-hidden="true">試</span><b>模擬考</b>` +
+      `<small>${last ? `上回 ${esc(last.total)} / 180` : '迷你 25 分・完整三節'}</small></a>` +
+      `<a class="tile" href="#notes/grammar"><span class="tileGlyph" aria-hidden="true">記</span><b>佛腳筆記</b>` +
+      `<small>${notesCount ? `${notesCount} 則・閃卡` : '準備中'}</small></a>` +
+      `<a class="tile" href="#mistakes"><span class="tileGlyph" aria-hidden="true">錯</span><b>錯題本</b>` +
+      `<small>${misses} 題待複習</small></a></div></section>`;
+    html += '</div>';
+    return html;
   }
-  function mistakePage() {
-    const items=mistakes();
-    const active=state.sessions.mistakes&&!state.sessions.mistakes.done;
-    return sectionHead('錯題本','Review notebook','答錯的題目會收在這裡，再次答對就能移出。')+
-      (active||items.length?startButton('mistakes',active?'繼續錯題重練':'重練錯題（'+Math.min(items.length,pack.round)+' 題）'):'')+
-      (items.length?items.map(q=>'<article class="entry"><span class="tag">'+escape(q.type)+'</span><p class="reviewPrompt" lang="'+pack.language+'">'+escape(q.prompt)+'</p><details><summary>查看題目與解析</summary>'+(q.passage?'<p class="passage" lang="'+pack.language+'">'+escape(q.passage)+'</p>':'')+'<p>正解　'+escape(q.options[q.answer])+'</p><p>'+escape(q.explanation)+'</p></details></article>').join(''):'<div class="panel empty"><h2>目前沒有待複習的錯題</h2><p class="sub">完成練習後，可以在這裡回顧答錯的題目。</p>'+startButton('mixed','進入混合衝刺')+'</div>');
+
+  // ---------- subject page ----------
+  function subject([catId]) {
+    const c = A.category(catId);
+    if (!c) return notFound();
+    const st = A.stats();
+    const cs = st.cats[c.id] || {total: 0, seen: 0, mastered: 0, count: 0, correct: 0, due: 0};
+    const drill = Store.state.sessions.drill;
+    let html = A.pageHead(c.name + '特訓', c.english, esc(c.desc));
+    if (drill && !drill.done && drill.params.cat === c.id) {
+      html += `<section class="panel resume"><div><span class="tag">未完成</span><h2>${esc(drill.title)}</h2>` +
+        `<p class="sub">已作答 ${drill.answers.filter(Boolean).length} / ${drill.ids.length} 題</p></div>` +
+        '<button type="button" class="primary" data-action="resume" data-key="drill">繼續上次特訓</button></section>';
+    }
+    html += `<section class="stats"><div class="metric"><label>掌握</label><strong>${pct(cs.mastered, cs.total)}<small> %</small></strong></div>` +
+      `<div class="metric"><label>已做 / 題數</label><strong>${cs.seen}<small> / ${cs.total}</small></strong></div>` +
+      `<div class="metric"><label>正確率</label><strong>${cs.count ? pct(cs.correct, cs.count) + '<small> %</small>' : '—'}</strong></div>` +
+      `<div class="metric"><label>到期複習</label><strong>${cs.due}<small> 題</small></strong></div></section>`;
+
+    const types = A.typesOf(c.id);
+    html += `<form class="drillForm" onsubmit="return false"><fieldset><legend>${A.sectionTitle('選擇題型', 'Question types')}</legend>` +
+      '<div class="typeRows">' +
+      `<label class="typeRow all"><input type="radio" name="type" value="" checked${cs.total ? '' : ' disabled'}>` +
+      `<span class="typeName"><b>全部題型混合</b><small>依複習優先度出題</small></span>` +
+      `<span class="typeNum">${cs.total} 題</span><span class="typeNum">已做 ${cs.seen}</span>` +
+      `<span class="typeNum">${cs.count ? pct(cs.correct, cs.count) + '%' : '—'}</span></label>` +
+      types.map(t => {
+        const ts = st.types[t.name];
+        if (!ts) {
+          return `<label class="typeRow pending"><input type="radio" name="type" value="${esc(t.name)}" disabled>` +
+            `<span class="typeName"><b>${esc(t.name)}</b><small lang="ja">${esc(t.ja)}</small></span>` +
+            '<span class="typeNum wideCell">準備中</span></label>';
+        }
+        return `<label class="typeRow"><input type="radio" name="type" value="${esc(t.name)}">` +
+          `<span class="typeName"><b>${esc(t.name)}</b><small lang="ja">${esc(t.ja)}</small></span>` +
+          `<span class="typeNum">${ts.total} 題</span><span class="typeNum">已做 ${ts.seen}</span>` +
+          `<span class="typeNum">${ts.count ? pct(ts.correct, ts.count) + '%' : '—'}</span></label>`;
+      }).join('') + '</div></fieldset>' +
+      '<fieldset class="countPick"><legend>題數</legend>' +
+      [10, 20, 30].map(n => `<label><input type="radio" name="count" value="${n}"${n === 20 ? ' checked' : ''}><span>${n} 題</span></label>`).join('') +
+      '</fieldset><p class="hint">讀解與文章文法以整篇為單位出題，題數可能略多。</p>' +
+      `<button type="button" class="primary big" data-action="start-drill" data-cat="${c.id}"${cs.total ? '' : ' disabled'}>` +
+      '<span class="play" aria-hidden="true">▶</span>開始特訓</button></form>';
+    return html;
   }
+
+  // ---------- mistakes ----------
+  function boxLabel(r) {
+    if (!r) return '';
+    const due = r.due <= Store.today() ? '今天到期' : `${A.fmtDate(r.due)} 到期`;
+    return `<span class="boxState box${r.box}" title="Leitner 第 ${r.box} 盒">` +
+      `<span class="boxDots" aria-hidden="true">${'●'.repeat(r.box)}${'○'.repeat(Store.MAX_BOX - r.box)}</span>` +
+      `第 ${r.box} 盒・${due}・答對 ${r.correct}/${r.count}</span>`;
+  }
+
+  function mistakeEntry(q) {
+    const r = Store.state.records[q.id];
+    const {instruction, stem} = A.splitPrompt(q);
+    return `<article class="entry mistake"><div class="reviewHead"><span class="tag">${esc(q.type)}</span>${boxLabel(r)}</div>` +
+      (instruction ? `<p class="instruction" lang="ja">${A.rb.instruction(q, instruction)}</p>` : '') +
+      `<p class="reviewPrompt" lang="ja">${A.promptHtml(q, stem)}</p>` +
+      '<details><summary>查看選項與解析</summary>' +
+      (q.passage ? `<div class="passage" lang="ja">${A.rb.passage(q)}</div>` : '') +
+      (q.audio ? A.scriptHtml(q, q.options.map((_, i) => i)) : '') +
+      '<ol class="optionList">' + q.options.map((o, i) =>
+        `<li class="${i === q.answer ? 'right' : ''}" lang="ja">${A.rb.option(q, i)}${i === q.answer ? ' <em>正解</em>' : ''}</li>`).join('') + '</ol>' +
+      `<p class="explain">${A.rb.explanation(q)}</p></details></article>`;
+  }
+
+  function mistakesPage() {
+    const {cat, type} = mistakeFilter;
+    const all = A.practice.mistakePool('', '');
+    const list = A.practice.mistakePool(cat, type);
+    const active = Store.state.sessions.mistakes;
+    const typeOptions = (cat ? A.typesOf(cat) : pack.types).filter(t => A.byType[t.name]);
+    let html = A.pageHead('錯題本', 'Review notebook', '答錯或標記「我是猜的」的題目會收在這裡；再次答對就會移出，並依間隔複習排程。');
+    if (active && !active.done) {
+      html += `<section class="panel resume"><div><span class="tag">未完成</span><h2>錯題重練</h2>` +
+        `<p class="sub">已作答 ${active.answers.filter(Boolean).length} / ${active.ids.length} 題</p></div>` +
+        '<button type="button" class="primary" data-action="resume" data-key="mistakes">繼續重練</button></section>';
+    }
+    html += '<div class="filters">' +
+      '<label>科目<select id="mistakeCat"><option value="">全部科目</option>' +
+      pack.categories.map(c => `<option value="${c.id}"${c.id === cat ? ' selected' : ''}>${esc(c.name)}</option>`).join('') +
+      '</select></label>' +
+      '<label>題型<select id="mistakeType"><option value="">全部題型</option>' +
+      typeOptions.map(t => `<option value="${esc(t.name)}"${t.name === type ? ' selected' : ''}>${esc(t.name)}</option>`).join('') +
+      '</select></label>' +
+      `<span class="hint">符合 ${list.length} 題／共 ${all.length} 題</span>` + A.rubyToggleHtml() +
+      (list.length ? `<button type="button" class="primary" data-action="start-mistakes">重練這些錯題（最多 ${pack.sprintSize} 題）</button>` : '') +
+      '</div>';
+    if (!list.length) {
+      html += `<div class="panel empty"><h2>${all.length ? '這個篩選條件下沒有錯題' : '目前沒有待複習的錯題'}</h2>` +
+        '<p class="sub">完成練習後，答錯的題目會出現在這裡。</p>' +
+        '<button type="button" class="primary" data-action="start-daily">開始今日衝刺</button></div>';
+      return html;
+    }
+    const LIMIT = 150;
+    html += list.slice(0, LIMIT).map(mistakeEntry).join('');
+    if (list.length > LIMIT) html += `<p class="hint">只顯示前 ${LIMIT} 題，請用篩選縮小範圍。</p>`;
+    return html;
+  }
+
+  // ---------- settings ----------
+  function settingsPage() {
+    const st = settings();
+    const speech = Speech.status();
+    const speechText = {ok: '可用（已找到日語語音）', loading: '載入中…', novoice: '找不到日語語音，聽解會改成文字稿', unsupported: '此瀏覽器不支援，聽解會改成文字稿'}[speech];
+    return A.pageHead('設定', 'Settings', '') +
+      '<section class="panel settings"><h2>考試與目標</h2>' +
+      `<label class="field"><span>考試日</span><input type="date" id="examDate" value="${esc(st.examDate)}" required></label>` +
+      `<p class="hint">預設為下一個 JLPT 日期（7 月或 12 月的第一個星期日）。間隔複習的間隔不會超過距考試天數的一半。</p>` +
+      `<label class="field"><span>每日目標（題）</span><input type="number" id="dailyGoal" min="5" max="500" step="5" value="${st.dailyGoal}"></label>` +
+      '</section>' +
+      '<section class="panel settings"><h2>顯示</h2>' +
+      `<label class="check"><input type="checkbox" id="furigana"${A.rubyOn() ? ' checked' : ''}>` +
+      '<span>漢字顯示假名注音<small>在題目、選項、本文、文字稿、解析引用與筆記例句的漢字上方顯示讀音（ふりがな）。' +
+      '作答、模擬考與筆記頁也有「あ 注音」快速切換鈕。漢字讀音題的考點不會標注。</small></span></label>' +
+      '</section>' +
+      '<section class="panel settings"><h2>聽解語音</h2>' +
+      `<p>語音合成：${esc(speechText)}</p>` +
+      '<div class="field"><span>預設語速</span><span class="rate" role="group" aria-label="語速">' +
+      [0.8, 1].map(r => `<button type="button" data-action="audio-rate" data-rate="${r}" aria-pressed="${st.rate === r}">${r.toFixed(1)}×</button>`).join('') +
+      '</span></div></section>' +
+      '<section class="panel settings"><h2>進度資料</h2>' +
+      (Store.storageOk ? '<p class="sub">進度存在這台裝置的瀏覽器裡。換裝置或清除瀏覽資料前，請先匯出備份。</p>'
+        : '<p class="warn">此瀏覽器目前無法保存進度，請記得匯出備份。</p>') +
+      '<div class="actions"><button type="button" class="secondary" data-action="export">匯出進度 JSON</button>' +
+      '<label class="secondary fileBtn">匯入進度 JSON<input type="file" id="importFile" accept="application/json,.json"></label>' +
+      '<button type="button" class="danger" data-action="reset">清除所有進度</button></div></section>';
+  }
+
+  function exportProgress() {
+    const data = JSON.stringify({app: 'study-sprint', topic: pack.id, exported: new Date().toISOString(), state: Store.state}, null, 1);
+    const url = URL.createObjectURL(new Blob([data], {type: 'application/json'}));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `n3-sprint-progress-${Store.today()}.json`;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  async function importProgress(file) {
+    try {
+      const raw = JSON.parse(await file.text());
+      const state = raw && raw.state ? raw.state : raw;
+      if (!state || typeof state !== 'object' || typeof state.records !== 'object') throw new Error('shape');
+      const n = Object.keys(state.records).length;
+      if (!confirm(`檔案內有 ${n} 題的作答紀錄。匯入會覆蓋目前的進度，確定嗎？`)) return;
+      Store.replace(state);
+      render();
+      announce('已匯入進度。');
+    } catch {
+      alert('無法讀取這個檔案，請確認是從本站匯出的進度 JSON。');
+    }
+  }
+
+  // ---------- resources ----------
   function resourcesPage() {
-    return sectionHead('備考資源','Study resources',pack.name+'・'+pack.label)+
-      '<section class="panel"><h2>練習範圍</h2><p>'+escape(pack.scope)+'</p>'+pack.sources.map(([s,u])=>'<a href="'+u+'" target="_blank" rel="noopener">'+s+'</a>').join('　')+'</section><div class="resources">'+
-      pack.resources.map(r=>'<article class="entry"><span class="source">'+escape(r.source)+'</span><h2><a href="'+escape(r.url)+'" target="_blank" rel="noopener">'+escape(r.title)+'</a></h2><p>'+escape(r.description)+'</p></article>').join('')+'</div>';
+    return A.pageHead('備考資源', 'Study resources', esc(pack.name + '・' + pack.label)) +
+      `<section class="panel"><h2>練習範圍</h2><p>${esc(pack.scope)}</p><p>` +
+      pack.sources.map(([s, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(s)}</a>`).join('　') +
+      '</p></section><div class="resources">' +
+      pack.resources.map(r => `<article class="entry"><span class="source">${esc(r.source)}</span>` +
+        `<h2><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a></h2><p>${esc(r.description)}</p></article>`).join('') +
+      '</div>';
   }
-  function practice(mode,s) {
-    const correct=s.answers.filter((a,i)=>bank.get(s.ids[i]).answer===a).length;
-    if(s.done) return '<div class="practice">'+sectionHead('本回練習完成','Session results',name(mode))+'<div class="panel"><h2>答對 '+correct+' / '+s.ids.length+' 題</h2><p>本回正確率 '+Math.round(correct/s.ids.length*100)+'%</p>'+
-      pack.categories.map(cat=>{const indices=s.ids.map((id,i)=>bank.get(id).cat===cat.id?i:-1).filter(i=>i>=0);return indices.length?'<p>'+cat.name+'　'+indices.filter(i=>s.answers[i]===bank.get(s.ids[i]).answer).length+' / '+indices.length+'</p>':'';}).join('')+
-      '<div class="actions">'+(mode!=='mistakes'||mistakes().length?startButton(mode,'再練一回'):'')+'<a href="#mistakes">查看錯題本</a><a href="#home">返回總覽</a></div></div></div>';
-    const q=bank.get(s.ids[s.index]);
-    const answered=s.answers.length>s.index;
-    const selected=s.answers[s.index];
-    const ok=selected===q.answer;
-    return '<div class="practice"><div class="sessionHead"><h1>'+name(mode)+'</h1><a href="#home">暫停練習</a></div><span class="hint">第 '+(s.index+1)+' / '+s.ids.length+' 題</span><div class="track"><i style="width:'+100*s.answers.length/s.ids.length+'%"></i></div><section class="panel"><span class="tag">'+escape(q.type)+'</span>'+
-      (q.passage?'<div class="passage" lang="'+pack.language+'">'+escape(q.passage)+'</div>':'')+
-      '<h2 class="question" lang="'+pack.language+'">'+escape(q.prompt)+'</h2><div class="choices">'+q.options.map((opt,i)=>{
-        const mark=answered?(i===q.answer?'　✓ 正解':i===selected?'　✕ 你的答案':''):'';
-        return '<button class="answer '+(answered?(i===q.answer?'correct':i===selected?'wrong':''):'')+'" data-answer="'+i+'" '+(answered?'disabled':'')+'><span>'+String.fromCharCode(65+i)+'</span><bdi lang="'+pack.language+'">'+escape(opt)+'</bdi>'+mark+'</button>';
-      }).join('')+'</div>'+(answered?'<div class="feedback '+(ok?'':'miss')+'" role="status"><strong>'+(ok?'答對了':'已加入錯題本')+'</strong><p>'+escape(q.explanation)+'</p><button class="primary" data-next>'+(s.index+1===s.ids.length?'查看本回成績':'下一題')+'</button></div>':'')+'</section></div>';
+
+  function notFound() {
+    return A.pageHead('找不到這個頁面', 'Not found', '') + '<p><a href="#home">回到作戰板</a></p>';
   }
-  function locationParts() {return location.hash.slice(1).split('/');}
-  function render() {
-    const [page,mode]=locationParts();
-    const active=page==='resources'||page==='mistakes'?page:'home';
-    document.querySelectorAll('nav a').forEach(a=>{if(a.hash==='#'+active)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});
-    app.innerHTML=(storageUnavailable?'<p class="warn">此瀏覽器無法保存進度，關閉頁面後紀錄可能遺失。</p>':'')+
-      (page==='practice'&&state.sessions[mode]?.ids?.every(id=>bank.has(id))?practice(mode,state.sessions[mode]):active==='mistakes'?mistakePage():active==='resources'?resourcesPage():home());
+
+  // ---------- router ----------
+  Object.assign(A.routes, {
+    home, cat: subject, mistakes: mistakesPage, settings: settingsPage, resources: resourcesPage
+  });
+  const NAV_OF = {home: 'home', cat: 'home', practice: 'home', mock: 'mock', notes: 'notes', flash: 'notes',
+    mistakes: 'mistakes', resources: 'resources', settings: 'settings'};
+
+  function parts() {
+    const [page, ...args] = location.hash.slice(1).split('/').map(decodeURIComponent);
+    return [A.routes[page] ? page : (page ? '404' : 'home'), args];
   }
-  app.addEventListener('click',event=>{
-    const button=event.target.closest('button');
-    if (!button) return;
-    if(button.dataset.start) {start(button.dataset.start);return;}
-    const [page,mode]=locationParts();
-    const s=state.sessions[mode];
-    if(page!=='practice'||!s||s.done) return;
-    const q=bank.get(s.ids[s.index]);
-    if(button.hasAttribute('data-answer') && s.answers.length===s.index) {
-      const choice=Number(button.dataset.answer);
-      const ok=choice===q.answer;
-      s.answers.push(choice);
-      const record=state.records[q.id]||{count:0,correct:0};
-      record.count++;
-      record.correct+=Number(ok);
-      record.wrong=!ok;
-      state.records[q.id]=record;
-      const date=today();
-      state.days[date]=(state.days[date]||0)+1;
-      save();render();
-      app.querySelector('[data-next]')?.focus({preventScroll:true});
-      app.querySelector('.feedback')?.scrollIntoView({block:'nearest'});
-    } else if(button.hasAttribute('data-next') && s.answers.length>s.index) {
-      if(s.index+1===s.ids.length)s.done=true;else s.index++;
-      save();render();window.scrollTo(0,0);
-      app.querySelector('[data-answer]')?.focus({preventScroll:true});
+
+  function render({keepScroll = false} = {}) {
+    const [page, args] = parts();
+    A.mockLeave?.(page === 'mock' && args[0] === 'run');
+    Speech.stop();
+    A.ui.audio = null;
+    const y = window.scrollY;
+    const banner = Store.storageOk ? '' :
+      '<p class="warn" role="alert">此瀏覽器無法保存進度（可能是無痕模式或停用了儲存空間），關閉頁面後紀錄會遺失。可到「設定」匯出備份。</p>';
+    let body;
+    try {
+      body = page === '404' ? notFound() : A.routes[page](args);
+    } catch (error) {
+      console.error(error);
+      body = '<div class="panel"><h2>這個頁面出了點問題</h2><p class="sub">請回到作戰板再試一次。</p><a href="#home">回作戰板</a></div>';
+    }
+    app.innerHTML = banner + body;
+    const current = NAV_OF[page];
+    document.querySelectorAll('header nav a').forEach(a => {
+      if (a.dataset.nav === current) a.setAttribute('aria-current', 'page');
+      else a.removeAttribute('aria-current');
+    });
+    if (keepScroll) window.scrollTo(0, y);
+  }
+  A.render = render;
+
+  function announce(text) {
+    const el = document.getElementById('announcer');
+    if (!el) return;
+    el.textContent = '';
+    setTimeout(() => { el.textContent = text; }, 50);
+  }
+  A.announce = announce;
+
+  // ---------- events ----------
+  function setFurigana(on) {
+    settings().furigana = on;
+    Store.save();
+    announce(on ? '已開啟假名注音。' : '已關閉假名注音。');
+  }
+  Object.assign(A.actions, {
+    'toggle-passage': el => {
+      A.ui.passageCollapsed = !A.ui.passageCollapsed;
+      const col = el.closest('.passageCol');
+      col.classList.toggle('collapsed', A.ui.passageCollapsed);
+      el.setAttribute('aria-expanded', String(!A.ui.passageCollapsed));
+      el.querySelector('small').textContent = A.ui.passageCollapsed ? '展開' : '收合';
+    },
+    'audio-play': () => A.playAudio(),
+    'audio-stop': () => A.stopAudio(),
+    'audio-rate': el => {
+      settings().rate = Number(el.dataset.rate);
+      Store.save();
+      el.parentElement.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b === el)));
+    },
+    'audio-text': () => {
+      A.ui.textMode = !A.ui.textMode;
+      render({keepScroll: true});
+    },
+    'toggle-ruby': () => {
+      setFurigana(!A.rubyOn());
+      render({keepScroll: true});
+      document.querySelector('[data-action="toggle-ruby"]')?.focus({preventScroll: true});
+    },
+    'export': exportProgress,
+    'reset': () => {
+      if (!confirm('確定清除所有作答紀錄、複習排程與模考紀錄？此動作無法復原（考試日與每日目標會保留）。')) return;
+      Store.reset();
+      render();
+      announce('已清除所有進度。');
     }
   });
-  document.title='臨時抱佛腳｜'+pack.title;
-  document.querySelector('#course').textContent=pack.label;
-  document.querySelector('#footerTopic').textContent=pack.name+' '+pack.label;
-  window.addEventListener('hashchange',()=>{render();window.scrollTo(0,0);});
+  // Drill buttons outside the subject form (weak-type shortcuts) carry their own type.
+  const startDrillAction = A.actions['start-drill'];
+  A.actions['start-drill'] = el => {
+    if (el.dataset.type) A.practice.startDrill(el.dataset.cat, el.dataset.type, Number(el.dataset.n) || 10);
+    else startDrillAction(el);
+  };
+
+  app.addEventListener('click', event => {
+    const el = event.target.closest('[data-action]');
+    if (!el || el.disabled) return;
+    const fn = A.actions[el.dataset.action];
+    if (fn) {
+      event.preventDefault();
+      fn(el, event);
+    }
+  });
+
+  document.addEventListener('change', event => {
+    const t = event.target;
+    if (t.id === 'examDate') {
+      if (Store.validDate(t.value)) {
+        settings().examDate = t.value;
+        Store.save();
+        announce('已更新考試日。');
+      }
+    } else if (t.id === 'dailyGoal') {
+      const n = Math.round(Number(t.value));
+      if (n >= 5 && n <= 500) {
+        settings().dailyGoal = n;
+        Store.save();
+        announce('已更新每日目標。');
+      } else t.value = settings().dailyGoal;
+    } else if (t.id === 'furigana') {
+      setFurigana(t.checked);
+    } else if (t.id === 'importFile' && t.files[0]) {
+      importProgress(t.files[0]);
+      t.value = '';
+    } else if (t.id === 'mistakeCat') {
+      mistakeFilter.cat = t.value;
+      mistakeFilter.type = '';
+      render({keepScroll: true});
+      document.getElementById('mistakeCat')?.focus();
+    } else if (t.id === 'mistakeType') {
+      mistakeFilter.type = t.value;
+      render({keepScroll: true});
+      document.getElementById('mistakeType')?.focus();
+    }
+  });
+
+  document.addEventListener('keydown', event => {
+    if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
+    const t = event.target;
+    if (t.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+    // Let Enter/Space activate the focused control natively.
+    if ((event.key === 'Enter' || event.key === ' ') && t.closest?.('button, a, summary, label')) return;
+    const [page, args] = parts();
+    if (A.keys[page]?.(event, args)) event.preventDefault();
+  });
+
+  window.addEventListener('hashchange', () => {
+    render();
+    window.scrollTo(0, 0);
+    document.querySelector('#app h1')?.focus({preventScroll: true});
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      Speech.stop();
+      A.mockPause?.();
+    } else if (location.hash === '#mock/run') {
+      render({keepScroll: true});
+    }
+  });
+  window.addEventListener('pagehide', () => {
+    Speech.stop();
+    A.mockPause?.();
+  });
+  // Japanese voices load asynchronously; refresh a waiting player once known.
+  Speech.whenReady(() => {
+    if (document.querySelector('#player [data-action="audio-play"][disabled]')) render({keepScroll: true});
+  });
+
+  document.title = '臨時抱佛腳｜' + pack.title;
+  document.getElementById('course').textContent = pack.label;
+  document.getElementById('footerTopic').textContent = pack.name + ' ' + pack.label;
   render();
 })();
