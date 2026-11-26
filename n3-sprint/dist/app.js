@@ -8,17 +8,18 @@
   const mistakeFilter = {cat: '', type: ''};
 
   // ---------- home ----------
-  function countdown() {
+  // Top of the page: start button plus three compact numbers (due, today, countdown).
+  function countdownStat() {
     const days = Store.daysToExam();
     const date = settings().examDate;
     const weekday = '日一二三四五六'[new Date(date + 'T00:00:00').getDay()];
     if (days < 0) {
-      return '<div class="countdown past"><span class="cdLabel">考試日已過</span>' +
-        '<a href="#settings">更新考試日</a></div>';
+      return '<li class="stat"><span class="statLabel">考試日</span><b class="statNum">已過</b>' +
+        '<a class="statSub" href="#settings">更新考試日</a></li>';
     }
-    return `<div class="countdown" aria-label="距考試還有 ${days} 天"><span class="cdLabel">距 N3 考試</span>` +
-      `<strong>${days}</strong><span class="cdUnit">${days === 0 ? '就是今天' : '天'}</span>` +
-      `<span class="cdDate">${esc(date.replaceAll('-', '.'))}（${weekday}）</span></div>`;
+    return `<li class="stat"><span class="statLabel">距考試</span>` +
+      `<b class="statNum">${days === 0 ? '就是今天' : `${days}<small> 天</small>`}</b>` +
+      `<span class="statSub"><span class="year">${esc(date.slice(0, 5).replace('-', '.'))}</span>${esc(date.slice(5).replace('-', '.'))}（${weekday}）</span></li>`;
   }
 
   function home() {
@@ -37,35 +38,32 @@
       html += '<p class="notice">已把舊版的練習紀錄搬到新版：答錯過的題目今天就會出現在複習裡。</p>';
       showMigrated = false;
     }
-    html += `<section class="hero board"><img class="heroArt" src="${esc(pack.art)}" alt="">` +
-      `<div class="heroCopy"><span class="eyebrow">${esc(pack.label)} · 今日作戰板</span>` +
-      `<h1 tabindex="-1">${esc(pack.title)}</h1>` +
-      '<ul class="todayList">' +
-      `<li><span>到期複習</span><b>${st.due}</b><small>題</small></li>` +
-      `<li class="goal"><span>今日目標</span><b>${doneToday}</b><small>/ ${goal} 題</small>${A.track(doneToday / goal * 100, '今日目標進度')}</li>` +
-      `<li><span>連續天數</span><b>${streak}</b><small>天</small></li></ul>` +
-      '<div class="heroActions">' +
-      `<button type="button" class="primary big" data-action="start-daily"><span class="play" aria-hidden="true">▶</span>` +
-      `${resume ? `繼續今日衝刺（${answeredInDaily} / ${daily.ids.length}）` : '開始今日衝刺'}</button>` +
-      `<small>每回 ${pack.sprintSize} 題：到期複習 → 弱點題型新題 → 其他新題，四科輪流出。</small></div></div>` +
-      countdown() + '</section>';
+    html += '<section class="today">' +
+      '<div class="todayMain"><h1 tabindex="-1">今日衝刺</h1>' +
+      `<p class="sub">每回 ${pack.sprintSize} 題：到期複習 → 弱點題型新題 → 其他新題，四科輪流出。</p>` +
+      '<button type="button" class="primary big" data-action="start-daily">' +
+      `${resume ? `繼續今日衝刺<small>${answeredInDaily} / ${daily.ids.length}</small>` : '開始今日衝刺'}</button></div>` +
+      '<ul class="statRow">' +
+      `<li class="stat"><span class="statLabel">到期複習</span><b class="statNum">${st.due}<small> 題</small></b>` +
+      `<span class="statSub">${st.due ? '會排在衝刺最前面' : '目前沒有到期'}</span></li>` +
+      `<li class="stat"><span class="statLabel">今日進度</span><b class="statNum">${doneToday}<small> / ${goal} 題</small></b>` +
+      `${A.track(doneToday / goal * 100, '今日目標進度')}<span class="statSub">連續 ${streak} 天</span></li>` +
+      countdownStat() + '</ul></section>';
 
     html += A.sectionTitle('四科掌握度', 'Subjects', `題庫共 ${A.byId.size} 題`);
     html += '<div class="cards four">' + pack.categories.map(c => {
       const cs = st.cats[c.id];
+      const name = `<h3><span class="dot" aria-hidden="true"></span>${esc(c.name)}</h3>`;
       if (!cs) {
-        return `<div class="card ${c.color} pending"><div class="cardHead"><span class="glyph" aria-hidden="true">${c.glyph}</span>` +
-          `<div><span class="english">${c.english}</span><h3>${esc(c.name)}</h3></div></div>` +
-          `<p>${esc(c.desc)}</p><div class="cardFoot"><span>題目準備中</span></div></div>`;
+        return `<div class="card cat-${c.id} pending"><div class="cardHead">${name}</div>` +
+          `<p class="cardFoot">題目準備中</p></div>`;
       }
-      return `<a class="card ${c.color}" href="#cat/${c.id}"><div class="cardHead"><span class="glyph" aria-hidden="true">${c.glyph}</span>` +
-        `<div><span class="english">${c.english}</span><h3>${esc(c.name)}</h3></div></div>` +
-        `<div class="mastery"><span>掌握</span><b>${pct(cs.mastered, cs.total)}%</b>` +
-        `<small>${cs.mastered} / ${cs.total} 題</small></div>` +
+      return `<a class="card cat-${c.id}" href="#cat/${c.id}"><div class="cardHead">${name}` +
+        `<span class="mastery"><b>${pct(cs.mastered, cs.total)}%</b> 掌握</span></div>` +
         `<div class="track dual" role="img" aria-label="已掌握 ${cs.mastered} 題，已做過 ${cs.seen} 題，共 ${cs.total} 題">` +
         `<i class="seen" style="width:${pct(cs.seen, cs.total)}%"></i><i style="width:${pct(cs.mastered, cs.total)}%"></i></div>` +
-        `<div class="cardFoot"><span>已做 ${cs.seen}・正確率 ${cs.count ? pct(cs.correct, cs.count) + '%' : '—'}` +
-        `${cs.due ? `・<em>到期 ${cs.due}</em>` : ''}</span><b>特訓 →</b></div></a>`;
+        `<p class="cardFoot"><span>已做 ${cs.seen} / ${cs.total}</span><span>正確率 ${cs.count ? pct(cs.correct, cs.count) + '%' : '—'}</span>` +
+        `${cs.due ? `<em>到期 ${cs.due}</em>` : ''}</p></a>`;
     }).join('') + '</div>';
 
     html += '<div class="split2">';
@@ -77,20 +75,18 @@
         return `<li><div class="weakName"><b>${esc(w.type)}</b><small>${esc(A.category(t.cat)?.shortName || '')}・作答 ${w.count} 次</small></div>` +
           `<span class="miniBar ${w.acc < 0.6 ? 'bad' : ''}"><i style="width:${Math.round(w.acc * 100)}%"></i></span>` +
           `<span class="weakPct">${Math.round(w.acc * 100)}%</span>` +
-          `<button type="button" class="textBtn" data-action="start-drill" data-cat="${esc(t.cat)}" data-type="${esc(w.type)}" data-n="10">練 10 題</button></li>`;
+          `<button type="button" class="secondary small" data-action="start-drill" data-cat="${esc(t.cat)}" data-type="${esc(w.type)}" data-n="10">練 10 題</button></li>`;
       }).join('') + '</ol>'
-      : `<div class="panel empty small"><p class="sub">同一題型作答滿 ${st.minSample} 次後，正確率最低的題型會排在這裡。</p></div>`;
+      : `<p class="emptyLine">同一題型作答滿 ${st.minSample} 次後，正確率最低的題型會排在這裡。</p>`;
     html += '</section>';
 
     const last = s.mockHistory[s.mockHistory.length - 1];
     const notesCount = pack.notes.length;
-    html += '<section>' + A.sectionTitle('其他入口', 'More') + '<div class="entryTiles">' +
-      `<a class="tile" href="#mock"><span class="tileGlyph" aria-hidden="true">試</span><b>模擬考</b>` +
-      `<small>${last ? `上回 ${esc(last.total)} / 180` : '迷你 25 分・完整三節'}</small></a>` +
-      `<a class="tile" href="#notes/grammar"><span class="tileGlyph" aria-hidden="true">記</span><b>佛腳筆記</b>` +
-      `<small>${notesCount ? `${notesCount} 則・閃卡` : '準備中'}</small></a>` +
-      `<a class="tile" href="#mistakes"><span class="tileGlyph" aria-hidden="true">錯</span><b>錯題本</b>` +
-      `<small>${misses} 題待複習</small></a></div></section>`;
+    const link = (href, name, note) => `<li><a href="${href}"><b>${name}</b><small>${note}</small></a></li>`;
+    html += '<section>' + A.sectionTitle('其他入口', 'More') + '<ul class="linkList">' +
+      link('#mock', '模擬考', last ? `上回 ${esc(last.total)} / 180` : '迷你 25 分・完整三節') +
+      link('#notes/grammar', '佛腳筆記', notesCount ? `${notesCount} 則・閃卡` : '準備中') +
+      link('#mistakes', '錯題本', `${misses} 題待複習`) + '</ul></section>';
     html += '</div>';
     return html;
   }
@@ -265,7 +261,8 @@
   }
 
   function notFound() {
-    return A.pageHead('找不到這個頁面', 'Not found', '') + '<p><a href="#home">回到作戰板</a></p>';
+    return A.pageHead('找不到這個頁面', 'Not found', '網址可能打錯了，或這個頁面已經不存在。') +
+      '<p><a class="primary" href="#home">回到作戰板</a></p>';
   }
 
   // ---------- router ----------
@@ -433,7 +430,7 @@
   });
 
   document.title = '臨時抱佛腳｜' + pack.title;
-  document.getElementById('course').textContent = pack.label;
+  document.getElementById('course').textContent = pack.label.replace('JLPT ', '');
   document.getElementById('footerTopic').textContent = pack.name + ' ' + pack.label;
   render();
 })();

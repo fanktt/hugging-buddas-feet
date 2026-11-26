@@ -29,20 +29,19 @@
     label: 'JLPT N3',
     name: '日本語能力試驗',
     title: 'N3 考前衝刺室',
-    art: 'fuji.png',
     language: 'ja',
     defaultExamDate: nextExamDate(),
     defaultDailyGoal: 40,
     sprintSize: 20,
 
     categories: [
-      {id: 'vocab', name: '文字詞彙', shortName: '詞彙', english: 'Vocabulary', glyph: '字', color: 'brick',
+      {id: 'vocab', name: '文字詞彙', shortName: '詞彙', english: 'Vocabulary',
         desc: '漢字讀音、表記、文脈選詞、近義與用法', weight: 6},
-      {id: 'grammar', name: '文法', shortName: '文法', english: 'Grammar', glyph: '文', color: 'olive',
+      {id: 'grammar', name: '文法', shortName: '文法', english: 'Grammar',
         desc: '句型接續、句子排列與文章文法', weight: 5},
-      {id: 'reading', name: '讀解', shortName: '讀解', english: 'Reading', glyph: '読', color: 'blue',
+      {id: 'reading', name: '讀解', shortName: '讀解', english: 'Reading',
         desc: '短文、中篇、長文與資訊檢索', weight: 4},
-      {id: 'listening', name: '聽解', shortName: '聽解', english: 'Listening', glyph: '聴', color: 'plum',
+      {id: 'listening', name: '聽解', shortName: '聽解', english: 'Listening',
         desc: '課題、重點、概要理解與發話、即時應答', weight: 5}
     ],
 

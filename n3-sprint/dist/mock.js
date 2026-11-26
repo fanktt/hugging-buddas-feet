@@ -204,7 +204,7 @@
         const have = sec.items.reduce((n, [t, k]) => n + available(t, k), 0);
         return `<li><span>${esc(sec.name)}</span><span>${sec.minutes} 分・${have < want ? `${have}／` : ''}${want} 題</span></li>`;
       }).join('');
-      return `<article class="mockCard ${kind}"><span class="english">${esc(spec.english)}</span><h2>${esc(spec.name)}</h2>` +
+      return `<article class="mockCard ${kind}"><h2>${esc(spec.name)}</h2>` +
         `<p>${esc(spec.desc)}</p><ul class="sectionList">${sections}</ul>` +
         `<button type="button" class="${kind === 'mini' ? 'primary' : 'secondary'}" data-action="mock-start" data-kind="${kind}">開始${esc(spec.name)}（${spec.minutes} 分）</button></article>`;
     }).join('') + '</div>';
@@ -215,7 +215,7 @@
         `<th scope="col">文字語彙</th><th scope="col">文法讀解</th><th scope="col">聽解</th><th scope="col">粗估總分</th><th scope="col">參考</th></tr></thead><tbody>` +
         hist.slice(0, 20).map(h => `<tr><td>${esc(A.fmtDate(h.date))}</td><td>${esc(pack.mocks[h.kind]?.name || h.kind)}</td>` +
           (h.sections || []).map(s => `<td>${s.score ?? '—'}</td>`).join('') +
-          `<td><b>${esc(h.total)}</b> / 180</td><td>${h.pass ? '<span class="stamp ok">合</span>' : '<span class="stamp">未</span>'}</td></tr>`).join('') +
+          `<td><b>${esc(h.total)}</b> / 180</td><td>${h.pass ? '<span class="stamp ok">達標</span>' : '<span class="stamp">未達</span>'}</td></tr>`).join('') +
         '</tbody></table>' +
         (Store.state.lastMock ? '<p><a href="#mock/review">查看上一回的逐題檢討</a></p>' : '') + '</section>'
       : '<div class="panel empty"><p class="sub">還沒有模考紀錄。建議先做一回迷你模考抓感覺。</p></div>';
@@ -226,7 +226,7 @@
     const spec = pack.mocks[m.kind];
     const n = m.current + 1;
     return '<div class="practice">' +
-      A.pageHead(`第 ${n} 節　${sec.name}`, `${spec.english} · Section ${n} / ${m.sections.length}`, '') +
+      A.pageHead(`第 ${n} 節　${sec.name}`, '', `${esc(spec.name)}・共 ${m.sections.length} 節`) +
       `<section class="panel sectionIntro"><div class="bigClock"><strong>${sec.minutes}</strong><span>分鐘</span></div>` +
       `<ul class="rules"><li>本節共 <b>${sec.ids.length}</b> 題，可跳題、標記，用上方題號導覽切換。</li>` +
       '<li>作答中不顯示對錯與解析，全部交卷後統一檢討。</li>' +
@@ -260,7 +260,7 @@
       '</div>';
     const answered = Object.keys(sec.answers).length;
     return `<div class="exam practice${q.passage ? ' wide' : ''}">` +
-      `<div class="examBar"><div><span class="english">Section ${m.current + 1} / ${m.sections.length}</span>` +
+      `<div class="examBar"><div class="examTitle"><span class="sectionNo">第 ${m.current + 1} / ${m.sections.length} 節</span>` +
       `<h1 tabindex="-1">${esc(sec.name)}</h1></div>` +
       `<span class="answeredCount">${answered} / ${sec.ids.length}</span>` + A.rubyToggleHtml() +
       `<span class="timer" id="timer" role="timer" aria-label="本節剩餘時間">${clock(remainingMs(sec))}</span>` +
@@ -298,7 +298,7 @@
       `<em>${x.correct} / ${x.total} 題・${pct(x.correct, x.total)}%</em>` +
       `${x.score !== null && x.score < PASS.section ? '<b class="below">未達基準分 19</b>' : ''}</div>`).join('') +
       `<div class="sectionScore total"><span>粗估總分</span><strong>${s.total}<small> / 180</small></strong>` +
-      `<span class="stamp big ${s.pass ? 'ok' : ''}" aria-label="${s.pass ? '合格水準' : '未達合格水準'}">${s.pass ? '合' : '未'}</span></div></div>` +
+      `<span class="stamp big ${s.pass ? 'ok' : ''}">${s.pass ? '達合格參考線' : '未達合格參考線'}</span></div></div>` +
       `<p class="disclaimer">※ 僅供參考，非正式換算：每節以正確率線性換算成 60 分。正式 JLPT 採等化計分，${m.kind === 'mini' ? '迷你模考題數少，誤差更大。' : '實際分數可能不同。'}` +
       `合格判定參考：總分 ≥ ${PASS.total} 且每節 ≥ ${PASS.section}。</p>` +
       '<div class="actions"><a class="primary" href="#mock">回模擬考首頁</a><a class="secondary" href="#mistakes">錯題本</a></div></section>';

@@ -11,13 +11,12 @@ globalThis.App = (() => {
   ));
   const pct = (a, b) => (b ? Math.round(a / b * 100) : 0);
 
+  // `en` (English label) is kept in the signature for callers but no longer shown.
   function pageHead(zh, en, desc = '') {
-    return `<div class="pageHead"><span class="eyebrow">${esc(en)}</span>` +
-      `<h1 tabindex="-1">${esc(zh)}</h1>${desc ? `<p>${desc}</p>` : ''}</div>`;
+    return `<div class="pageHead"><h1 tabindex="-1">${esc(zh)}</h1>${desc ? `<p>${desc}</p>` : ''}</div>`;
   }
   function sectionTitle(zh, en, tail = '') {
-    return `<div class="sectionTitle"><h2>${esc(zh)}</h2><span class="english">${esc(en)}</span>` +
-      `<span class="tail">${tail}</span></div>`;
+    return `<div class="sectionTitle"><h2>${esc(zh)}</h2>${tail ? `<span class="tail">${tail}</span>` : ''}</div>`;
   }
   function track(value, label) {
     const v = Math.max(0, Math.min(100, value));
@@ -236,7 +235,7 @@ globalThis.App = (() => {
     }
     const disabled = mode === 'loading' ? ' disabled' : '';
     return `<div class="player" id="player">` +
-      `<div class="playerRow"><span class="playerGlyph" aria-hidden="true">聴</span>` +
+      `<div class="playerRow">` +
       `<button type="button" class="primary" data-action="audio-play"${disabled}><span aria-hidden="true">▶</span>播放</button>` +
       `<button type="button" class="secondary" data-action="audio-stop"${disabled}><span aria-hidden="true">■</span>停止</button>` +
       `<button type="button" class="secondary" data-action="audio-play" data-replay${disabled}><span aria-hidden="true">↺</span>重播</button>` +
@@ -307,7 +306,8 @@ globalThis.App = (() => {
       ? `<details class="transcript" open><summary>完整文字稿</summary>${scriptHtml(q, order, {withOptions: true})}</details>`
       : '';
 
-    const main = `<div class="qMain">${head}${choices}${transcript}${after}</div>`;
+    // Feedback (`after`) comes before the transcript so the verdict stays next to the choices.
+    const main = `<div class="qMain">${head}${choices}${after}${transcript}</div>`;
     return q.passage
       ? `<div class="qLayout split">${passageHtml(q, ui)}${main}</div>`
       : `<div class="qLayout">${main}</div>`;

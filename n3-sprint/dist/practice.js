@@ -150,19 +150,22 @@
       const status = a.ok
         ? (a.guessed ? '已標記為猜的，明天會再出現。' : `記住了！升到第 ${box} 盒，${due ? A.fmtDate(due) : ''} 再複習。`)
         : '已收進錯題本，明天會再出現。';
-      after = `<div class="feedback ${a.ok && !a.guessed ? '' : 'miss'}" role="status">` +
-        `<strong>${a.ok ? (a.guessed ? '答對（猜的）' : '答對了') : '答錯了'}</strong><span class="boxNote">${esc(status)}</span>` +
-        `<p class="explain">${A.rb.explanation(q)}</p>` +
-        `<div class="actions">` +
-        `<button type="button" class="primary" data-action="next" id="nextBtn">${last ? '查看本回成績' : '下一題'}<span class="kbd" aria-hidden="true">Enter</span></button>` +
+      // Verdict and the next button sit on one row right under the choices;
+      // the explanation follows. On phones the button row sticks to the bottom.
+      after = `<div class="feedback ${a.ok && !a.guessed ? 'ok' : 'miss'}">` +
+        `<div class="feedbackHead"><p class="verdictLine" role="status"><strong>${a.ok ? (a.guessed ? '答對（猜的）' : '答對了') : '答錯了'}</strong>` +
+        `<span class="boxNote">${esc(status)}</span></p>` +
+        `<div class="actions nextBar">` +
         (a.ok && !a.guessed ? '<button type="button" class="secondary" data-action="guess">我是猜的</button>' : '') +
-        '</div></div>';
+        `<button type="button" class="primary" data-action="next" id="nextBtn">${last ? '查看本回成績' : '下一題'}<span class="kbd" aria-hidden="true">Enter</span></button>` +
+        '</div></div>' +
+        `<p class="explain">${A.rb.explanation(q)}</p></div>`;
     }
     const done = s.answers.filter(Boolean).length;
     return `<div class="practice${q.passage ? ' wide' : ''}">` +
-      `<div class="sessionHead"><div><span class="eyebrow">Practice</span><h1 tabindex="-1">${esc(s.title)}</h1></div>` +
-      `<div class="headTools">${A.rubyToggleHtml()}<a class="pause" href="#home">暫停，回作戰板</a></div></div>` +
-      `<div class="progressLine"><span>第 ${s.index + 1} / ${s.ids.length} 題</span><span class="hint">鍵盤 1–4 作答・Enter 下一題</span></div>` +
+      `<div class="sessionHead"><h1 tabindex="-1">${esc(s.title)}</h1>` +
+      `<span class="progressNum">第 ${s.index + 1} / ${s.ids.length} 題</span>` +
+      `<div class="headTools">${A.rubyToggleHtml()}<a class="pause" href="#home">暫停</a></div></div>` +
       A.track(done / s.ids.length * 100, '本回進度') +
       `<section class="panel questionPanel">${A.questionHtml(q, {order: s.orders[q.id], chosen: a?.choice, reveal: answered, after})}</section>` +
       '</div>';
@@ -176,7 +179,7 @@
       `<button type="button" class="primary" data-action="restart" data-key="${esc(s.key)}">再來一回</button>`;
     return '<div class="practice">' +
       A.pageHead('本回練習完成', 'Session results', esc(s.title)) +
-      `<section class="panel resultPanel"><div class="scoreSeal"><strong>${correct}</strong><span>/ ${s.ids.length}</span></div>` +
+      `<section class="panel resultPanel"><p class="bigScore"><strong>${correct}</strong><span> / ${s.ids.length} 題答對</span></p>` +
       `<div><h2>正確率 ${pct(correct, s.ids.length)}%</h2><p class="sub">猜對的題目不算掌握，會和錯題一起在明天複習。</p>` +
       `<div class="actions">${again}<a class="secondary" href="#mistakes">錯題本</a><a class="secondary" href="#home">回作戰板</a></div></div></section>` +
       A.sectionTitle('各題型成績', 'By type') +
