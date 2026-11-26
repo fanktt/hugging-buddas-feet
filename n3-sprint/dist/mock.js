@@ -58,6 +58,11 @@
 
   // ---------- clock ----------
   const mock = () => Store.state.mock;
+  // Drop saved exams that refer to questions no longer in the bank.
+  for (const key of ['mock', 'lastMock']) {
+    const saved = Store.state[key];
+    if (saved && !saved.sections.every(sec => sec.ids.every(id => A.byId.has(id)))) Store.state[key] = null;
+  }
   const section = () => mock()?.sections[mock().current];
   const limitMs = sec => sec.minutes * 60000;
   const usedMs = sec => sec.elapsed + (sec.resumedAt ? Date.now() - sec.resumedAt : 0);
