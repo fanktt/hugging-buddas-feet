@@ -98,12 +98,6 @@
     passScore: {total: 95, section: 19, sectionMax: 60},
 
     questions: Bank.questions,
-    notes: Bank.notes,
-    resources: globalThis.resources || [],
-    scope: '本題庫依 JLPT 公布的 N3 題型編寫：文字詞彙五類、文法三類、讀解四類、聽解五類。聽解由瀏覽器語音合成朗讀。官方未公布逐項詞表與文法表，本站提供原創練習與繁中解析。',
-    sources: [
-      ['官方 N3 題型說明', 'https://www.jlpt.jp/guideline/pdf/n3.pdf'],
-      ['JLPT 常見問題', 'https://jlpt.jp/sp/e/faq/index.html']
-    ]
+    notes: Bank.notes
   };
 })();

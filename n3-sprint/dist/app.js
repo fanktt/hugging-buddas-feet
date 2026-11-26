@@ -1,4 +1,4 @@
-// Router and the remaining pages: 作戰板 (home), subject pages, 錯題本, 設定, 備考資源.
+// Router and the remaining pages: 作戰板 (home), subject pages, 錯題本, 設定.
 (() => {
   const A = globalThis.App;
   const {pack, Store, Speech, esc, pct} = A;
@@ -249,17 +249,6 @@
     }
   }
 
-  // ---------- resources ----------
-  function resourcesPage() {
-    return A.pageHead('備考資源', 'Study resources', esc(pack.name + '・' + pack.label)) +
-      `<section class="panel"><h2>練習範圍</h2><p>${esc(pack.scope)}</p><p>` +
-      pack.sources.map(([s, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(s)}</a>`).join('　') +
-      '</p></section><div class="resources">' +
-      pack.resources.map(r => `<article class="entry"><span class="source">${esc(r.source)}</span>` +
-        `<h2><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a></h2><p>${esc(r.description)}</p></article>`).join('') +
-      '</div>';
-  }
-
   function notFound() {
     return A.pageHead('找不到這個頁面', 'Not found', '網址可能打錯了，或這個頁面已經不存在。') +
       '<p><a class="primary" href="#home">回到作戰板</a></p>';
@@ -267,10 +256,10 @@
 
   // ---------- router ----------
   Object.assign(A.routes, {
-    home, cat: subject, mistakes: mistakesPage, settings: settingsPage, resources: resourcesPage
+    home, cat: subject, mistakes: mistakesPage, settings: settingsPage
   });
   const NAV_OF = {home: 'home', cat: 'home', practice: 'home', mock: 'mock', notes: 'notes', flash: 'notes',
-    mistakes: 'mistakes', resources: 'resources', settings: 'settings'};
+    mistakes: 'mistakes', settings: 'settings'};
 
   function parts() {
     const [page, ...args] = location.hash.slice(1).split('/').map(decodeURIComponent);

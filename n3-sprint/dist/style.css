@@ -5,7 +5,7 @@
      2. Base & accessibility            9. Results & review
      3. Header / footer                10. Mock exam
      4. Shared type & controls         11. Notes & flashcards
-     5. Home                           12. Mistakes, settings, resources
+     5. Home                           12. Mistakes, settings
      6. Subject page                   13. Furigana (ruby)
      7. Practice (question screen)     14. Responsive / motion */
 
@@ -755,7 +755,7 @@ summary { color: var(--accent); cursor: pointer; }
 .flashTitle { margin: 16px 0 24px; font-size: 34px; }
 .flashBack { padding-top: 16px; border-top: 1px solid var(--line); text-align: left; }
 
-/* ========== 12. Mistakes, settings, resources ========== */
+/* ========== 12. Mistakes, settings ========== */
 
 .filters { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; }
 .filters label { display: grid; gap: 4px; min-width: 160px; color: var(--muted); font-size: 13px; }
@@ -778,11 +778,8 @@ summary { color: var(--accent); cursor: pointer; }
 .check input { flex-shrink: 0; width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--accent); }
 .check small { display: block; margin-top: 2px; color: var(--muted); font-size: 13px; }
 
-.resources { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
-.resources .entry { margin: 0; }
 .entry h2 { font-size: 17px; }
 .entry p { margin: 6px 0; }
-.source { color: var(--muted); font-size: 13px; }
 
 /* Furigana quick toggle */
 .rubyToggle {
@@ -973,7 +970,6 @@ rt {
   .filters label { flex: 1; min-width: 130px; }
   .filters .primary { width: 100%; }
   .field { grid-template-columns: 1fr; gap: 4px; }
-  .resources { grid-template-columns: 1fr; }
   .scoreTable { font-size: 14px; }
   .scoreTable th, .scoreTable td { padding: 7px 6px; }
   .scoreTable .miniBar { width: 48px; }

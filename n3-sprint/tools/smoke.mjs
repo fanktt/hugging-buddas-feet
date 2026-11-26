@@ -147,7 +147,7 @@ for (const kind of ['mini', 'full']) {
 
 // ---------- pages render ----------
 context.location.hash = '';
-const pages = ['#home', '#cat/vocab', '#cat/listening', '#mistakes', '#settings', '#resources', '#mock', '#notes/grammar',
+const pages = ['#home', '#cat/vocab', '#cat/listening', '#mistakes', '#settings', '#mock', '#notes/grammar',
   '#notes/confuse', '#flash/grammar', '#practice/daily', '#mock/run', '#mock/review', '#nope'];
 A.practice.startDaily(true);
 for (const hash of pages) {
