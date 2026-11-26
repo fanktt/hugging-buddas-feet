@@ -1,4 +1,6 @@
 // Practice sessions: today's sprint, category/type drills and mistake review.
+// Sessions are built from the index (ids and types only); the router loads the
+// files of the chosen questions before the session page is drawn.
 (() => {
   const A = globalThis.App;
   const {pack, Store, esc, pct} = A;
@@ -7,7 +9,7 @@
   function makeSession(key, title, list, params = {}) {
     const ids = list.map(q => q.id);
     const orders = {};
-    for (const q of list) orders[q.id] = A.permutation(q.options.length);
+    for (const q of list) orders[q.id] = A.permutation(A.optionCount(q));
     return {key, title, params, ids, orders, answers: [], index: 0, done: false, created: Store.today()};
   }
 
@@ -82,10 +84,24 @@
     else location.hash = hash;
   }
 
+  // The home page builds the next sprint ahead of time (while idle) so its files can be
+  // fetched before the button is pressed. It is used only if progress has not changed since.
+  let prepared = null;  // {list, revision, day}
+  function prepareDaily() {
+    const s = Store.state.sessions.daily;
+    if (s && !s.done && s.created === Store.today()) return s.ids;
+    if (!prepared || prepared.revision !== Store.revision || prepared.day !== Store.today()) {
+      prepared = {list: buildDaily(), revision: Store.revision, day: Store.today()};
+    }
+    return prepared.list.map(q => q.id);
+  }
+
   function startDaily(forceNew = false) {
     const s = Store.state.sessions.daily;
     if (!forceNew && s && !s.done && s.created === Store.today()) return open('daily');
-    const list = buildDaily();
+    const ready = !forceNew && prepared && prepared.revision === Store.revision && prepared.day === Store.today();
+    const list = ready ? prepared.list : buildDaily();
+    prepared = null;
     if (!list.length) return alert('題庫準備中，暫時沒有可練習的題目。');
     Store.state.sessions.daily = makeSession('daily', '今日衝刺', list);
     Store.save();
@@ -139,7 +155,7 @@
   }
 
   function questionView(s) {
-    const q = A.byId.get(s.ids[s.index]);
+    const q = A.question(s.ids[s.index]);
     const a = s.answers[s.index];
     const answered = Boolean(a);
     const last = s.index + 1 === s.ids.length;
@@ -172,7 +188,7 @@
   }
 
   function resultView(s) {
-    const items = s.ids.map((id, i) => ({q: A.byId.get(id), a: s.answers[i] || {}}));
+    const items = s.ids.map((id, i) => ({q: A.question(id), a: s.answers[i] || {}}));
     const correct = items.filter(x => x.a.ok && !x.a.guessed).length;
     const misses = items.map((x, i) => ({...x, i})).filter(x => !x.a.ok || x.a.guessed);
     const again = s.key === 'mistakes' && !mistakePool(s.params.cat, s.params.type).length ? '' :
@@ -202,17 +218,18 @@
   function choose(pos) {
     const s = activeSession();
     if (!s || s.answers[s.index]) return;
-    const q = A.byId.get(s.ids[s.index]);
+    const q = A.question(s.ids[s.index]);
+    if (!q) return;  // text not loaded (page still loading or failed)
     const choice = s.orders[q.id][pos];
     if (choice === undefined) return;
     const ok = choice === q.answer;
     const prev = Store.grade(q.id, ok);
     s.answers[s.index] = {choice, ok, guessed: false, prevBox: prev ? prev.box : 0};
     Store.save();
-    A.render({keepScroll: true});
-    const next = document.getElementById('nextBtn');
-    next?.focus({preventScroll: true});
-    document.querySelector('.feedback')?.scrollIntoView({block: 'nearest', behavior: 'smooth'});
+    A.render({keepScroll: true, after: () => {
+      document.getElementById('nextBtn')?.focus({preventScroll: true});
+      document.querySelector('.feedback')?.scrollIntoView({block: 'nearest', behavior: 'smooth'});
+    }});
   }
 
   function next() {
@@ -221,9 +238,9 @@
     if (s.index + 1 >= s.ids.length) s.done = true;
     else s.index++;
     Store.save();
-    A.render();
-    window.scrollTo(0, 0);
-    if (!s.done) document.querySelector('[data-action="answer"]')?.focus({preventScroll: true});
+    A.render({top: true, after: () => {
+      if (!s.done) document.querySelector('[data-action="answer"]')?.focus({preventScroll: true});
+    }});
   }
 
   Object.assign(A.actions, {
@@ -252,8 +269,7 @@
       Store.markGuessed(s.ids[s.index], {box: a.prevBox});
       a.guessed = true;
       Store.save();
-      A.render({keepScroll: true});
-      document.getElementById('nextBtn')?.focus({preventScroll: true});
+      A.render({keepScroll: true, after: () => document.getElementById('nextBtn')?.focus({preventScroll: true})});
     },
     'restart': el => {
       const s = Store.state.sessions[el.dataset.key];
@@ -262,6 +278,7 @@
   });
 
   A.routes.practice = ([key]) => sessionView(key);
+  A.needs.practice = ([key]) => Store.state.sessions[key]?.ids || [];
   A.keys.practice = event => {
     const s = activeSession();
     if (!s) return false;
@@ -271,5 +288,5 @@
     return false;
   };
 
-  A.practice = {startDaily, startDrill, startMistakes, mistakePool, buildDaily, buildDrill};
+  A.practice = {startDaily, startDrill, startMistakes, mistakePool, buildDaily, buildDrill, prepareDaily};
 })();

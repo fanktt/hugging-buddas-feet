@@ -81,4 +81,4 @@ script 的說話者代號：`M` 男、`F` 女、`M2`／`F2` 第二位男／女�
 node tools/validate.mjs data/<name>.js   # 只列出該檔的問題；必須顯示 OK
 ```
 
-「index.html does not load…」之類與自己檔案無關的訊息可忽略。交件前請自己重讀全部題目一遍，逐題確認唯一正解與日文自然度。
+新檔案寫好後跑一次 `node tools/manifest.mjs`，App 才會知道它（不帶參數的 `validate.mjs` 會檢查索引是否最新）。交件前請自己重讀全部題目一遍，逐題確認唯一正解與日文自然度。

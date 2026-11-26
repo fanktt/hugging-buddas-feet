@@ -48,6 +48,7 @@ const all = entries();
 
 if (command === 'template') {
   fs.mkdirSync(rubyDir, {recursive: true});
+  let wrote = false;
   const sources = [...new Set([...all.values()].map(e => e.source))].filter(s => !args.length || args.includes(s));
   for (const source of sources) {
     const target = path.join(dist, rubyName(source));
@@ -56,7 +57,9 @@ if (command === 'template') {
     for (const e of all.values()) if (e.source === source) lines.push(`Ruby.add(${JSON.stringify(e.key)}, ${JSON.stringify(e.fields, null, 1)});`);
     fs.writeFileSync(target, lines.join('\n') + '\n');
     console.log('wrote ' + rubyName(source));
+    wrote = true;
   }
+  if (wrote) console.log('then run: node tools/manifest.mjs   (so the app knows about the new furigana file)');
 } else if (command === 'check' || command === 'readings') {
   const files = fs.existsSync(rubyDir) ? fs.readdirSync(rubyDir).filter(f => f.endsWith('.js')).map(f => 'ruby/' + f) : [];
   const problems = [];

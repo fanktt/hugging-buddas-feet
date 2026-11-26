@@ -28,8 +28,19 @@ globalThis.App = (() => {
     return `${Number(m)}/${Number(day)}`;
   };
 
-  // ---------- indexes (built once) ----------
-  const questions = pack.questions;
+  // ---------- indexes (built once, from manifest.js) ----------
+  // Index entries are {id, cat, type, passageId?, file}: enough to count and select.
+  // Question text (prompt, options, passage, audio, explanation, answer) lives in the
+  // data files, which are loaded on demand: call A.load(ids) and wait before A.question(id).
+  const Bank = globalThis.Bank;
+  const questions = Bank.catalog.questions;
+  const notes = Bank.catalog.notes;
+  const question = id => Bank.question(id);
+  const note = id => Bank.note(id);
+  const optionCount = q => (Bank.TYPES[q.type] || {}).options || 4;
+  const rubyWanted = () => Store.state.settings.furigana !== false;
+  const load = items => Bank.ensure(items, {ruby: rubyWanted()});
+  const loaded = items => Bank.ready(items, {ruby: rubyWanted()});
   const byId = new Map();
   const byCat = {};
   const byType = {};
@@ -140,7 +151,7 @@ globalThis.App = (() => {
   // <ruby> readings when the setting is on and a matching annotation exists.
   // Speech always uses the original plain strings, never these.
   const Ruby = globalThis.Ruby;
-  const rubyOn = () => Store.state.settings.furigana !== false;
+  const rubyOn = rubyWanted;
   const ja = (plain, annotated) => (Ruby ? Ruby.html(plain, annotated, {on: rubyOn()}) : esc(plain));
   const marks = key => (Ruby ? Ruby.get(key) : {}) || {};
   const rb = {
@@ -354,11 +365,13 @@ globalThis.App = (() => {
 
   return {
     pack, Store, Speech, esc, pct, pageHead, sectionTitle, track, fmtDate,
-    questions, byId, byCat, byType, groups, groupKey, category, typeInfo, typesOf,
+    questions, notes, byId, byCat, byType, groups, groupKey, category, typeInfo, typesOf,
+    question, note, optionCount, load, loaded,
     stats, shuffle, permutation, tiers, takeUnits, ranked,
     questionHtml, reviewHtml, typeScoreTable, scriptHtml, splitPrompt, promptHtml,
     ja, rb, rubyOn, rubyToggleHtml,
     ui, audioMode, playAudio, stopAudio,
-    routes: {}, actions: {}, keys: {}, render: () => {}
+    // needs[page](args) lists the question/note ids a page shows; the router loads them first.
+    routes: {}, needs: {}, actions: {}, keys: {}, render: () => Promise.resolve()
   };
 })();

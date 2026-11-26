@@ -6,6 +6,7 @@
   const settings = () => Store.state.settings;
   let showMigrated = Store.migrated;
   const mistakeFilter = {cat: '', type: ''};
+  const MISTAKE_LIMIT = 150;
 
   // ---------- home ----------
   // Top of the page: start button plus three compact numbers (due, today, countdown).
@@ -81,7 +82,7 @@
     html += '</section>';
 
     const last = s.mockHistory[s.mockHistory.length - 1];
-    const notesCount = pack.notes.length;
+    const notesCount = A.notes.length;
     const link = (href, name, note) => `<li><a href="${href}"><b>${name}</b><small>${note}</small></a></li>`;
     html += '<section>' + A.sectionTitle('其他入口', 'More') + '<ul class="linkList">' +
       link('#mock', '模擬考', last ? `上回 ${esc(last.total)} / 180` : '迷你 25 分・完整三節') +
@@ -145,7 +146,8 @@
       `第 ${r.box} 盒・${due}・答對 ${r.correct}/${r.count}</span>`;
   }
 
-  function mistakeEntry(q) {
+  function mistakeEntry(entry) {
+    const q = A.question(entry.id);
     const r = Store.state.records[q.id];
     const {instruction, stem} = A.splitPrompt(q);
     return `<article class="entry mistake"><div class="reviewHead"><span class="tag">${esc(q.type)}</span>${boxLabel(r)}</div>` +
@@ -187,9 +189,8 @@
         '<button type="button" class="primary" data-action="start-daily">開始今日衝刺</button></div>';
       return html;
     }
-    const LIMIT = 150;
-    html += list.slice(0, LIMIT).map(mistakeEntry).join('');
-    if (list.length > LIMIT) html += `<p class="hint">只顯示前 ${LIMIT} 題，請用篩選縮小範圍。</p>`;
+    html += list.slice(0, MISTAKE_LIMIT).map(mistakeEntry).join('');
+    if (list.length > MISTAKE_LIMIT) html += `<p class="hint">只顯示前 ${MISTAKE_LIMIT} 題，請用篩選縮小範圍。</p>`;
     return html;
   }
 
@@ -258,6 +259,8 @@
   Object.assign(A.routes, {
     home, cat: subject, mistakes: mistakesPage, settings: settingsPage
   });
+  A.needs.mistakes = () => A.practice.mistakePool(mistakeFilter.cat, mistakeFilter.type)
+    .slice(0, MISTAKE_LIMIT).map(q => q.id);
   const NAV_OF = {home: 'home', cat: 'home', practice: 'home', mock: 'mock', notes: 'notes', flash: 'notes',
     mistakes: 'mistakes', settings: 'settings'};
 
@@ -266,14 +269,31 @@
     return [A.routes[page] ? page : (page ? '404' : 'home'), args];
   }
 
-  function render({keepScroll = false} = {}) {
-    const [page, args] = parts();
-    A.mockLeave?.(page === 'mock' && args[0] === 'run');
-    Speech.stop();
-    A.ui.audio = null;
-    const y = window.scrollY;
-    const banner = Store.storageOk ? '' :
-      '<p class="warn" role="alert">此瀏覽器無法保存進度（可能是無痕模式或停用了儲存空間），關閉頁面後紀錄會遺失。可到「設定」匯出備份。</p>';
+  // Pages that show question or note text declare it in A.needs; render() loads the
+  // files first. While loading, the old page stays (inert) and a quiet "載入中…" appears
+  // only if loading takes longer than LOADING_DELAY. A newer render always wins.
+  // opts: keepScroll, top (scroll to top), after (called once the page is drawn).
+  const LOADING_DELAY = 250;
+  let renderSeq = 0;
+  let loadingTimer = null;
+  let status = 'ok';  // 'ok' | 'busy' (loading) | 'error' (load failed)
+  let retryOpts = {};
+  function setStatus(next) {
+    status = next;
+    if (next === 'busy') app.setAttribute('aria-busy', 'true');
+    else app.removeAttribute('aria-busy');
+  }
+  const banner = () => (Store.storageOk ? '' :
+    '<p class="warn" role="alert">此瀏覽器無法保存進度（可能是無痕模式或停用了儲存空間），關閉頁面後紀錄會遺失。可到「設定」匯出備份。</p>');
+  function markNav(page) {
+    const current = NAV_OF[page];
+    document.querySelectorAll('header nav a').forEach(a => {
+      if (a.dataset.nav === current) a.setAttribute('aria-current', 'page');
+      else a.removeAttribute('aria-current');
+    });
+  }
+
+  function draw(page, args, opts) {
     let body;
     try {
       body = page === '404' ? notFound() : A.routes[page](args);
@@ -281,13 +301,68 @@
       console.error(error);
       body = '<div class="panel"><h2>這個頁面出了點問題</h2><p class="sub">請回到作戰板再試一次。</p><a href="#home">回作戰板</a></div>';
     }
-    app.innerHTML = banner + body;
-    const current = NAV_OF[page];
-    document.querySelectorAll('header nav a').forEach(a => {
-      if (a.dataset.nav === current) a.setAttribute('aria-current', 'page');
-      else a.removeAttribute('aria-current');
+    app.innerHTML = banner() + body;
+    markNav(page);
+    if (opts.top) window.scrollTo(0, 0);
+    else if (opts.keepScroll) window.scrollTo(0, opts.y);
+    opts.after?.();
+    if (page === 'home') prefetchDaily();
+  }
+
+  function render(opts = {}) {
+    const [page, args] = parts();
+    A.mockLeave?.(page === 'mock' && args[0] === 'run');
+    Speech.stop();
+    A.ui.audio = null;
+    const seq = ++renderSeq;
+    clearTimeout(loadingTimer);
+    const o = {...opts, y: opts.y ?? window.scrollY};
+    let need = [];
+    try {
+      need = (page !== '404' && A.needs[page]?.(args)) || [];
+    } catch (error) {
+      console.error(error);
+    }
+    if (A.loaded(need)) {
+      setStatus('ok');
+      draw(page, args, o);
+      return Promise.resolve();
+    }
+    setStatus('busy');
+    loadingTimer = setTimeout(() => {
+      if (seq !== renderSeq) return;
+      app.innerHTML = banner() + '<div class="loadState" role="status"><p>載入中…</p></div>';
+      markNav(page);
+    }, LOADING_DELAY);
+    return A.load(need).then(() => {
+      if (seq === renderSeq) return render(o);
+    }, error => {
+      if (seq !== renderSeq) return;
+      clearTimeout(loadingTimer);
+      console.error(error);
+      setStatus('error');
+      app.innerHTML = banner() + '<div class="panel loadError" role="alert"><h2>題目載入失敗</h2>' +
+        '<p class="sub">可能是網路連線中斷。請確認連線後重試。</p>' +
+        `<p class="hint">${esc((error.files || []).join('、'))}</p>` +
+        '<div class="actions center"><button type="button" class="primary" data-action="retry-load">重試</button>' +
+        '<a class="secondary" href="#home">回作戰板</a></div></div>';
+      markNav(page);
+      app.querySelector('[data-action="retry-load"]')?.focus({preventScroll: true});
+      o.top = false;
+      retryOpts = o;
     });
-    if (keepScroll) window.scrollTo(0, y);
+  }
+
+  // While the home page is idle, fetch the files of the sprint its button would start
+  // (only that sprint's files), so starting it is nearly instant.
+  function prefetchDaily() {
+    const seq = renderSeq;
+    const run = () => {
+      if (seq !== renderSeq || status !== 'ok') return;
+      A.load(A.practice.prepareDaily()).catch(() => {});
+    };
+    if (window.requestIdleCallback) window.requestIdleCallback(run, {timeout: 3000});
+    else setTimeout(run, 800);
   }
   A.render = render;
 
@@ -302,6 +377,7 @@
   // ---------- events ----------
   function setFurigana(on) {
     settings().furigana = on;
+    if (on) globalThis.Bank.retryRuby();
     Store.save();
     announce(on ? '已開啟假名注音。' : '已關閉假名注音。');
   }
@@ -325,10 +401,17 @@
       render({keepScroll: true});
     },
     'toggle-ruby': () => {
-      setFurigana(!A.rubyOn());
-      render({keepScroll: true});
-      document.querySelector('[data-action="toggle-ruby"]')?.focus({preventScroll: true});
+      const on = !A.rubyOn();
+      setFurigana(on);
+      // Reflect the new state right away; turning furigana on may first load its files.
+      document.querySelectorAll('[data-action="toggle-ruby"]').forEach(b => {
+        b.setAttribute('aria-pressed', String(on));
+        const label = b.querySelector('b');
+        if (label) label.textContent = on ? '開' : '關';
+      });
+      render({keepScroll: true, after: () => document.querySelector('[data-action="toggle-ruby"]')?.focus({preventScroll: true})});
     },
+    'retry-load': () => render(retryOpts),
     'export': exportProgress,
     'reset': () => {
       if (!confirm('確定清除所有作答紀錄、複習排程與模考紀錄？此動作無法復原（考試日與每日目標會保留）。')) return;
@@ -347,6 +430,11 @@
   app.addEventListener('click', event => {
     const el = event.target.closest('[data-action]');
     if (!el || el.disabled) return;
+    // While a page is loading (or failed to), the old page's controls are inert.
+    if (status !== 'ok' && el.dataset.action !== 'retry-load') {
+      event.preventDefault();
+      return;
+    }
     const fn = A.actions[el.dataset.action];
     if (fn) {
       event.preventDefault();
@@ -377,17 +465,16 @@
     } else if (t.id === 'mistakeCat') {
       mistakeFilter.cat = t.value;
       mistakeFilter.type = '';
-      render({keepScroll: true});
-      document.getElementById('mistakeCat')?.focus();
+      render({keepScroll: true, after: () => document.getElementById('mistakeCat')?.focus()});
     } else if (t.id === 'mistakeType') {
       mistakeFilter.type = t.value;
-      render({keepScroll: true});
-      document.getElementById('mistakeType')?.focus();
+      render({keepScroll: true, after: () => document.getElementById('mistakeType')?.focus()});
     }
   });
 
   document.addEventListener('keydown', event => {
     if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
+    if (status !== 'ok') return;
     const t = event.target;
     if (t.closest?.('input, textarea, select, [contenteditable="true"]')) return;
     // Let Enter/Space activate the focused control natively.
@@ -397,9 +484,7 @@
   });
 
   window.addEventListener('hashchange', () => {
-    render();
-    window.scrollTo(0, 0);
-    document.querySelector('#app h1')?.focus({preventScroll: true});
+    render({top: true, after: () => document.querySelector('#app h1')?.focus({preventScroll: true})});
   });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {

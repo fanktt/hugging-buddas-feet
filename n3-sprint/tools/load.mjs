@@ -6,6 +6,8 @@ import {fileURLToPath} from 'node:url';
 
 export const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist');
 export const dataFiles = () => fs.readdirSync(path.join(dist, 'data')).filter(f => f.endsWith('.js')).sort();
+// Questions written before the registry existed; each file ends with its own Bank.legacy(...) call.
+export const legacyFiles = ['knowledge.js', 'reading.js'];
 
 export function load(only) {
   const context = vm.createContext({});
@@ -22,16 +24,9 @@ export function load(only) {
   };
   run('bank.js');
   const failures = [];
-  if (!only) {
-    for (const legacy of ['knowledge.js', 'reading.js']) {
-      const start = context.Bank.questions.length;
-      run(legacy);
-      vm.runInContext(`Bank.legacy(globalThis.${legacy.replace('.js', '')})`, context);
-      context.Bank.questions.slice(start).forEach(q => fileOf.set(q, legacy));
-    }
-  }
-  for (const file of only || dataFiles().map(f => 'data/' + f)) {
+  const files = only || [...legacyFiles, ...dataFiles().map(f => 'data/' + f)];
+  for (const file of files) {
     try { run(file); } catch (error) { failures.push(file + ': ' + error.message); }
   }
-  return {bank: context.Bank, fileOf, failures};
+  return {bank: context.Bank, fileOf, failures, files};
 }

@@ -103,6 +103,7 @@ globalThis.Store = (() => {
   let storageOk = true;
   let migrated = false;
   let state = blank();
+  let revision = 0;   // bumped on every save; lets callers tell whether progress changed
 
   function load() {
     try {
@@ -127,6 +128,7 @@ globalThis.Store = (() => {
   }
 
   function save() {
+    revision++;
     if (!storageOk) return;
     try {
       localStorage.setItem(KEY, JSON.stringify(state));
@@ -217,6 +219,7 @@ globalThis.Store = (() => {
     get state() { return state; },
     get storageOk() { return storageOk; },
     get migrated() { return migrated; },
+    get revision() { return revision; },
     INTERVALS, MAX_BOX,
     today, addDays, diffDays, validDate,
     save, grade, markGuessed, isDue, streak, daysToExam, intervalFor, reset, replace, normalize

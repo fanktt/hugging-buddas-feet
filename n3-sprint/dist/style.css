@@ -207,6 +207,11 @@ h1 { font-size: 26px; line-height: 1.35; }
 .empty.small { padding: 20px; }
 .empty h2 { margin-bottom: 4px; }
 
+/* on-demand loading (app.js render) */
+.loadState { padding: 48px 0; color: var(--muted); text-align: center; }
+.loadError { text-align: center; }
+#app[aria-busy="true"] { cursor: progress; }
+
 .tag {
   display: inline-block;
   padding: 2px 8px;

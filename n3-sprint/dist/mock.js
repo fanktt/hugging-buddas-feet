@@ -1,9 +1,12 @@
 // Mock exams: mini (≈25 min) and full (three timed sections, N3 structure).
 // The clock runs only while the exam page is open; time is kept as
 // accumulated `elapsed` plus a `resumedAt` timestamp, so it survives reloads.
+// Exams are assembled from the index; a section's question files are loaded when
+// the section is shown (and fetched ahead while its intro page is open).
 (() => {
   const A = globalThis.App;
   const {pack, Store, esc, pct} = A;
+  const Bank = globalThis.Bank;
   const PASS = pack.passScore;
 
   // ---------- building ----------
@@ -38,7 +41,7 @@
     const sections = spec.sections.map(sec => {
       const list = sec.items.flatMap(([type, n]) => pickType(type, n, taken));
       const orders = {};
-      for (const q of list) orders[q.id] = A.permutation(q.options.length);
+      for (const q of list) orders[q.id] = A.permutation(A.optionCount(q));
       return {
         id: sec.id, name: sec.name, minutes: sec.minutes,
         ids: list.map(q => q.id), orders, answers: {}, flags: {},
@@ -120,11 +123,12 @@
     location.hash = '#mock/run';
   }
 
+  // The clock starts when the first question is on screen (runView → resumeClock),
+  // so time spent loading the section's files is not counted.
   function beginSection() {
     const sec = section();
-    if (!sec) return;
+    if (!sec || sec.started) return;
     sec.started = true;
-    sec.resumedAt = Date.now();
     mock().index = 0;
     Store.save();
     A.render();
@@ -158,16 +162,26 @@
   }
 
   function scoreOf(sec) {
-    const correct = sec.ids.filter(id => sec.answers[id] === A.byId.get(id)?.answer).length;
+    const correct = sec.ids.filter(id => sec.answers[id] === A.question(id)?.answer).length;
     const total = sec.ids.length;
     return {id: sec.id, name: sec.name, correct, total, score: total ? Math.round(correct / total * PASS.sectionMax) : null};
   }
 
+  const allIds = m => m.sections.flatMap(sec => sec.ids);
+
+  // Grading needs every answer key, so all of the exam's files must be loaded first;
+  // until then the exam page shows the loading state and calls finish() again.
   function finish() {
     const m = mock();
+    if (!m || m.current < m.sections.length) return;
+    if (!Bank.ready(allIds(m))) {
+      Store.save();
+      if (location.hash === '#mock/run') A.render();
+      return;
+    }
     for (const sec of m.sections) {
       for (const id of sec.ids) {
-        const q = A.byId.get(id);
+        const q = A.question(id);
         if (q) Store.grade(id, sec.answers[id] === q.answer);
       }
     }
@@ -193,7 +207,7 @@
       const answered = m.sections.reduce((n, s) => n + Object.keys(s.answers).length, 0);
       const total = m.sections.reduce((n, s) => n + s.ids.length, 0);
       html += `<section class="panel resume"><div><span class="tag">進行中</span><h2>${esc(pack.mocks[m.kind].name)}</h2>` +
-        `<p class="sub">第 ${m.current + 1} 節・已作答 ${answered} / ${total} 題・計時在離開頁面時暫停</p></div>` +
+        `<p class="sub">第 ${Math.min(m.current + 1, m.sections.length)} 節・已作答 ${answered} / ${total} 題・計時在離開頁面時暫停</p></div>` +
         `<div class="actions"><a class="primary" href="#mock/run">繼續作答</a>` +
         `<button type="button" class="textBtn" data-action="mock-abandon">放棄這回</button></div></section>`;
     }
@@ -248,7 +262,7 @@
   function examView(m, sec) {
     const index = Math.min(m.index, sec.ids.length - 1);
     const id = sec.ids[index];
-    const q = A.byId.get(id);
+    const q = A.question(id);
     if (!q) return '<p class="warn">題目資料遺失，請放棄這回模考。</p>';
     const flagged = Boolean(sec.flags[id]);
     const controls = '<div class="examControls">' +
@@ -276,8 +290,17 @@
     if (!m) {
       return A.pageHead('沒有進行中的模考', 'Mock exam', '') + '<p><a href="#mock">回模擬考首頁</a></p>';
     }
+    if (m.current >= m.sections.length) {
+      // Every section is in; grading waits for the files (see finish).
+      setTimeout(finish);
+      return '<p class="hint" role="status">正在計分…</p>';
+    }
     const sec = section();
-    if (!sec.started) return intro(m, sec);
+    if (!sec.started) {
+      // Fetch the section's questions while the intro is read.
+      A.load(sec.ids).catch(() => {});
+      return intro(m, sec);
+    }
     resumeClock();
     if (remainingMs(sec) <= 0) {
       setTimeout(() => submitSection(true));
@@ -302,13 +325,13 @@
       `<p class="disclaimer">※ 僅供參考，非正式換算：每節以正確率線性換算成 60 分。正式 JLPT 採等化計分，${m.kind === 'mini' ? '迷你模考題數少，誤差更大。' : '實際分數可能不同。'}` +
       `合格判定參考：總分 ≥ ${PASS.total} 且每節 ≥ ${PASS.section}。</p>` +
       '<div class="actions"><a class="primary" href="#mock">回模擬考首頁</a><a class="secondary" href="#mistakes">錯題本</a></div></section>';
-    const all = m.sections.flatMap(sec => sec.ids.map(id => ({q: A.byId.get(id), sec})).filter(x => x.q));
+    const all = m.sections.flatMap(sec => sec.ids.map(id => ({q: A.question(id), sec})).filter(x => x.q));
     html += A.sectionTitle('各題型成績', 'By type') +
       `<section class="panel">${A.typeScoreTable(all.map(({q, sec}) => ({q, ok: sec.answers[q.id] === q.answer})))}</section>`;
     html += A.sectionTitle('逐題檢討', 'Item review',
       '<button type="button" class="textBtn" data-action="review-filter" aria-pressed="false">只看錯題</button>' + A.rubyToggleHtml());
     html += '<div class="reviewList">' + m.sections.map(sec => {
-      const items = sec.ids.map((id, i) => ({q: A.byId.get(id), i})).filter(x => x.q);
+      const items = sec.ids.map((id, i) => ({q: A.question(id), i})).filter(x => x.q);
       if (!items.length) return '';
       return `<h3 class="reviewSection">${esc(sec.name)}</h3>` + items.map(({q, i}) =>
         A.reviewHtml(q, {order: sec.orders[q.id], chosen: sec.answers[q.id], index: i})).join('');
@@ -345,8 +368,7 @@
     if (!sec || index < 0 || index >= sec.ids.length) return;
     mock().index = index;
     Store.save();
-    A.render();
-    document.querySelector('.qNav [aria-current]')?.focus({preventScroll: true});
+    A.render({after: () => document.querySelector('.qNav [aria-current]')?.focus({preventScroll: true})});
   }
 
   function toggleFlag() {
@@ -380,6 +402,13 @@
   });
 
   A.routes.mock = ([sub]) => (sub === 'run' ? runView() : sub === 'review' ? reviewView() : landing());
+  A.needs.mock = ([sub]) => {
+    if (sub === 'review') return Store.state.lastMock ? allIds(Store.state.lastMock) : [];
+    const m = mock();
+    if (sub !== 'run' || !m) return [];
+    if (m.current >= m.sections.length) return allIds(m);
+    return section().started ? section().ids : [];
+  };
 
   A.keys.mock = (event, [sub]) => {
     if (sub !== 'run') return false;

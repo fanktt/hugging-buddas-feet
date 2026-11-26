@@ -1,20 +1,27 @@
-// 佛腳筆記: browse/search Bank.notes and drill them as flashcards.
+// 佛腳筆記: browse/search the notes and drill them as flashcards.
+// Counts come from the index; a kind's note files are loaded before its pages draw.
 (() => {
   const A = globalThis.App;
-  const {pack, Store, esc} = A;
+  const {Store, esc} = A;
   const KINDS = {
     grammar: {name: '文法句型', english: 'Grammar patterns'},
     confuse: {name: '易混淆詞', english: 'Look-alike words'}
   };
-  const notes = pack.notes;
-  const byId = new Map(notes.map(n => [n.id, n]));
-  const ofKind = kind => notes.filter(n => n.kind === kind);
+  // Index entries {id, kind}, in bank order; the full note comes from A.note(id).
+  const ofKind = kind => A.notes.filter(n => n.kind === kind);
+  const idsOf = kind => ofKind(kind).map(n => n.id);
 
-  // Search text is built once per note.
-  const haystack = new Map(notes.map(n => [n.id, [
-    n.title, n.connection, n.meaning, n.example, n.exampleZh, n.tip,
-    ...(n.items || []).flatMap(i => [i.word, i.reading, i.meaning, i.example])
-  ].filter(Boolean).join('\n').toLowerCase()]));
+  // Search text is built once per note, after its file has loaded.
+  const haystack = new Map();
+  function searchText(n) {
+    if (!haystack.has(n.id)) {
+      haystack.set(n.id, [
+        n.title, n.connection, n.meaning, n.example, n.exampleZh, n.tip,
+        ...(n.items || []).flatMap(i => [i.word, i.reading, i.meaning, i.example])
+      ].filter(Boolean).join('\n').toLowerCase());
+    }
+    return haystack.get(n.id);
+  }
 
   let query = '';
   const marks = () => Store.state.noteMarks;
@@ -45,7 +52,7 @@
 
   function listHtml(kind) {
     const q = query.trim().toLowerCase();
-    const list = ofKind(kind).filter(n => !q || haystack.get(n.id).includes(q));
+    const list = ofKind(kind).map(n => A.note(n.id)).filter(n => n && (!q || searchText(n).includes(q)));
     if (!list.length) {
       return `<div class="panel empty"><p class="sub">${ofKind(kind).length ? '找不到符合的筆記。' : '筆記準備中，稍後再來看看。'}</p></div>`;
     }
@@ -94,7 +101,7 @@
         `<div class="actions center"><button type="button" class="primary" data-action="flash-restart">再洗一次牌</button>` +
         `<a class="secondary" href="#notes/${kind}">回筆記列表</a></div></div>`;
     }
-    const n = byId.get(deck.queue[0]);
+    const n = A.note(deck.queue[0]);
     const front = `<p class="cardKind">${esc(KINDS[kind].name)}</p><h2 class="flashTitle" lang="ja">${title(n)}</h2>`;
     return head +
       `<div class="flashMeta"><span>剩 ${deck.queue.length} 張</span><span>本輪已熟 ${deck.knownNow}</span>` +
@@ -111,8 +118,7 @@
   function flip() {
     if (!deck || deck.flipped || !deck.queue.length) return;
     deck.flipped = true;
-    A.render({keepScroll: true});
-    document.getElementById('flashFirst')?.focus({preventScroll: true});
+    A.render({keepScroll: true, after: () => document.getElementById('flashFirst')?.focus({preventScroll: true})});
   }
   function rate(known) {
     if (!deck || !deck.flipped) return;
@@ -123,8 +129,7 @@
     else deck.queue.splice(Math.min(3, deck.queue.length), 0, id);
     deck.flipped = false;
     Store.save();
-    A.render({keepScroll: true});
-    document.getElementById('flashFirst')?.focus({preventScroll: true});
+    A.render({keepScroll: true, after: () => document.getElementById('flashFirst')?.focus({preventScroll: true})});
   }
 
   Object.assign(A.actions, {
@@ -134,6 +139,9 @@
   });
 
   A.routes.notes = notesView;
+  const needs = ([kind]) => idsOf(KINDS[kind] ? kind : 'grammar');
+  A.needs.notes = needs;
+  A.needs.flash = needs;
   A.routes.flash = args => {
     if (deck && deck.kind !== args[0]) deck = null;
     return flashView(args);
@@ -151,7 +159,7 @@
     query = event.target.value;
     const kind = location.hash.split('/')[1];
     const list = document.getElementById('noteList');
-    if (list) list.innerHTML = listHtml(KINDS[kind] ? kind : 'grammar');
+    if (list && A.loaded(idsOf(KINDS[kind] ? kind : 'grammar'))) list.innerHTML = listHtml(KINDS[kind] ? kind : 'grammar');
   });
   // Leaving the flashcard page resets the deck next time.
   A.flashReset = () => { deck = null; };

@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // Usage: node tools/validate.mjs [data/file.js ...]
-// Without arguments checks the whole bank, including cross-file duplicates.
+// Without arguments checks the whole bank, including cross-file duplicates and that
+// dist/manifest.js (the index the app loads at start) matches the bank.
 import fs from 'node:fs';
 import path from 'node:path';
-import {load, dist, dataFiles} from './load.mjs';
+import {load, dist, dataFiles, legacyFiles} from './load.mjs';
+import {build, manifestPath} from './manifest.mjs';
 
 const args = process.argv.slice(2).map(a => a.replace(/^.*dist\//, ''));
 const {bank, fileOf, failures} = load();
@@ -69,8 +71,23 @@ for (const n of bank.notes) {
   if (n.kind === 'confuse' && !(n.items?.length >= 2 && n.items.every(i => text(i.word) && text(i.meaning) && text(i.example)))) say(n, 'incomplete confuse note');
 }
 if (!args.length) {
+  // The app loads only manifest.js at start; it must describe the bank exactly.
   const html = fs.readFileSync(path.join(dist, 'index.html'), 'utf8');
-  for (const f of dataFiles()) if (!html.includes('data/' + f)) problems.push('index.html does not load data/' + f);
+  if (!html.includes('src="manifest.js"')) problems.push('index.html does not load manifest.js');
+  for (const src of html.matchAll(/<script src="((?:data|ruby)\/[^"]+|knowledge\.js|reading\.js)"/g)) {
+    if (src[1] !== 'ruby/instructions.js') problems.push(`index.html loads ${src[1]} statically; bank files are loaded on demand via manifest.js`);
+  }
+  const built = build();
+  problems.push(...built.problems.map(p => 'manifest: ' + p));
+  const current = fs.existsSync(manifestPath) ? fs.readFileSync(manifestPath, 'utf8') : '';
+  if (current !== built.text) problems.push('dist/manifest.js is out of date with the bank: run `node tools/manifest.mjs`');
+  const listed = new Map([...current.matchAll(/^\["([^"]+)","([^"]*)"/gm)].map(m => [m[1], m[2]]));
+  for (const f of [...legacyFiles, ...dataFiles().map(f => 'data/' + f)]) {
+    const ruby = 'ruby/' + path.basename(f);
+    if (!listed.has(f)) problems.push(`manifest.js does not list ${f}`);
+    else if (fs.existsSync(path.join(dist, ruby)) && listed.get(f) !== ruby) problems.push(`manifest.js does not map ${f} to ${ruby}`);
+    if (!fs.existsSync(path.join(dist, ruby))) warnings.push(`${f}: no furigana file ${ruby} yet (node tools/furigana.mjs template ${f})`);
+  }
 }
 const tally = {};
 for (const q of bank.questions) if (wanted(q)) tally[q.cat + '/' + q.type] = (tally[q.cat + '/' + q.type] || 0) + 1;

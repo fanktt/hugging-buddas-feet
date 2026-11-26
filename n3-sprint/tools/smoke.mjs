@@ -3,9 +3,11 @@
 //   node tools/smoke.mjs                 # uses dist/data
 //   node tools/smoke.mjs --data /tmp/x   # load data/*.js from another directory
 //   node tools/smoke.mjs --ruby /tmp/y   # load ruby/*.js (furigana) from another directory
-// Loads every script in index.html order into a sandbox with a tiny DOM stub,
-// then checks scheduling, session building, mock assembly, migration and that
-// every page renders without throwing or printing "undefined"/"NaN".
+// Runs the scripts of index.html in a sandbox with a tiny DOM stub. Bank files are loaded
+// on demand: the stub's document.head.appendChild(<script>) reads the file from disk and
+// fires onload/onerror asynchronously, like a browser. Checks on-demand loading, then
+// scheduling, session building, mock assembly, migration and that every page renders
+// without throwing or printing "undefined"/"NaN".
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
@@ -17,12 +19,16 @@ const argRuby = process.argv.indexOf('--ruby');
 const rubyDir = argRuby > 0 ? path.resolve(process.argv[argRuby + 1]) : path.join(dist, 'ruby');
 const html = fs.readFileSync(path.join(dist, 'index.html'), 'utf8');
 const scripts = [...html.matchAll(/<script src="([^"]+)"/g)].map(m => m[1]);
+const fileFor = src => (src.startsWith('data/') ? path.join(dataDir, src.slice(5))
+  : src.startsWith('ruby/') ? path.join(rubyDir, src.slice(5)) : path.join(dist, src));
+const isBankFile = src => /^(data|ruby)\//.test(src) || src === 'knowledge.js' || src === 'reading.js';
 
 let failures = 0;
 const check = (ok, label) => {
   console.log((ok ? 'ok   ' : 'FAIL ') + label);
   if (!ok) failures++;
 };
+const flush = async (n = 6) => { for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r)); };
 
 function element() {
   return {
@@ -34,14 +40,34 @@ function element() {
   };
 }
 
-function sandbox(storage = {}) {
+// opts.hash: initial location.hash; opts.fail: Set of srcs that 404; opts.hold: Set of srcs
+// whose load waits until release(src) is called; opts.quiet hides expected console.error.
+function sandbox(storage = {}, {hash = '', fail = new Set(), hold = new Set(), quiet = false} = {}) {
   const store = {...storage};
   const elements = {};
-  const context = {
-    console,
+  const requests = [];   // every dynamically requested src, in order
+  const held = new Map();
+  let context;
+  const finishLoad = (el, src) => {
+    const file = fileFor(src);
+    if (fail.has(src) || !fs.existsSync(file)) return el.onerror?.({type: 'error'});
+    try { vm.runInContext(fs.readFileSync(file, 'utf8'), context, {filename: src}); }
+    catch (error) { console.log('  script error in ' + src + ': ' + error.message); }
+    el.onload?.({type: 'load'});
+  };
+  const head = element();
+  head.appendChild = el => {
+    const src = el.src;
+    requests.push(src);
+    if (hold.has(src)) held.set(src, () => finishLoad(el, src));
+    else setImmediate(() => finishLoad(el, src));
+    return el;
+  };
+  context = {
+    console: quiet ? {...console, error() {}} : console,
     setTimeout: () => 0, clearTimeout() {}, setInterval: () => 0, clearInterval() {},
     navigator: {userAgent: 'node'},
-    location: {hash: ''},
+    location: {hash},
     localStorage: {
       getItem: k => (k in store ? store[k] : null),
       setItem: (k, v) => { store[k] = String(v); },
@@ -50,7 +76,7 @@ function sandbox(storage = {}) {
     document: {
       getElementById: id => (elements[id] ||= element()),
       querySelector: () => null, querySelectorAll: () => [],
-      addEventListener() {}, createElement: element, body: element(), hidden: false
+      addEventListener() {}, createElement: element, body: element(), head, hidden: false
     },
     window: {addEventListener() {}, scrollTo() {}, scrollY: 0},
     alert() {}, confirm: () => true
@@ -59,32 +85,188 @@ function sandbox(storage = {}) {
   vm.createContext(context);
   const skipped = [];
   for (const src of scripts) {
-    const file = src.startsWith('data/') ? path.join(dataDir, src.slice(5))
-      : src.startsWith('ruby/') ? path.join(rubyDir, src.slice(5)) : path.join(dist, src);
+    const file = fileFor(src);
     if (!fs.existsSync(file)) { skipped.push(src); continue; }
-    try {
-      vm.runInContext(fs.readFileSync(file, 'utf8'), context, {filename: src});
-    } catch (error) {
-      if (src.startsWith('data/') || src.startsWith('ruby/')) skipped.push(src + ' (error: ' + error.message + ')');
-      else throw error;
-    }
+    vm.runInContext(fs.readFileSync(file, 'utf8'), context, {filename: src});
   }
-  return {context, store, elements, skipped};
+  const release = src => { const go = held.get(src); held.delete(src); hold.delete(src); go?.(); };
+  const bankRequests = () => requests.filter(isBankFile);
+  const dataRequests = () => requests.filter(r => !r.startsWith('ruby/'));
+  return {context, store, elements, skipped, requests, bankRequests, dataRequests, release, fail};
 }
 
-// ---------- load ----------
+const allFiles = ctx => ctx.Bank.catalog.files.map(f => f.file);
+const filesOfIds = (ctx, ids) => [...new Set(ids.map(id => ctx.App.byId.get(id).file))].sort();
+const sameSet = (a, b) => a.length === b.length && [...a].sort().every((x, i) => x === [...b].sort()[i]);
+
+// ---------- on-demand loading ----------
+{
+  const sb = sandbox();
+  const {App: A, Bank} = sb.context;
+  await flush();
+  check(scripts.includes('manifest.js') && !scripts.some(s => isBankFile(s) && s !== 'ruby/instructions.js'),
+    'index.html loads manifest.js and no bank files');
+  check(sb.bankRequests().length === 0 && Bank.questions.length === 0 && Bank.notes.length === 0,
+    'start: no bank file loaded, only the index');
+  check(/題庫共 \d+ 題/.test(sb.elements.app.innerHTML) && A.byId.size >= 100, `home renders from the index (${A.byId.size} questions)`);
+  check(A.notes.length > 0 && /佛腳筆記<\/b><small>\d+ 則/.test(sb.elements.app.innerHTML), 'note count comes from the index');
+
+  // Drill of one type loads only files holding that type (plus their furigana).
+  A.practice.startDrill('vocab', '漢字讀音', 10);
+  sb.context.location.hash = '#practice/drill';
+  await A.render();
+  const typeFiles = Bank.catalog.files.filter(f => f.questions.some(q => q.type === '漢字讀音')).map(f => f.file);
+  const drillIds = sb.context.Store.state.sessions.drill.ids;
+  check(sb.dataRequests().every(f => typeFiles.includes(f)) && sameSet(sb.dataRequests(), filesOfIds(sb.context, drillIds)),
+    `drill loads only its type's files: ${sb.dataRequests().join(', ')}`);
+  check(sb.requests.filter(r => r.startsWith('ruby/')).every(r => typeFiles.map(f => 'ruby/' + path.basename(f)).includes(r)) &&
+    sb.requests.some(r => r.startsWith('ruby/')), 'furigana on: matching ruby files load with them');
+  check(/questionPanel/.test(sb.elements.app.innerHTML), 'drill question renders after loading');
+}
+
+// Today's sprint loads the files of the chosen questions only.
+let sprintStore;
+{
+  const sb = sandbox();
+  const {App: A, Bank, Store} = sb.context;
+  await flush();
+  const prepared = A.practice.prepareDaily();
+  A.practice.startDaily();
+  check(sameSet(Store.state.sessions.daily.ids, prepared), 'start uses the sprint prepared while home was idle');
+  sb.context.location.hash = '#practice/daily';
+  await A.render();
+  const ids = Store.state.sessions.daily.ids;
+  check(sameSet(sb.dataRequests(), filesOfIds(sb.context, ids)), `daily sprint loads ${sb.dataRequests().length} files for ${ids.length} questions`);
+  check(sb.dataRequests().length < allFiles(sb.context).length, 'daily sprint does not load the whole bank');
+  check(/questionPanel/.test(sb.elements.app.innerHTML), 'daily sprint renders');
+  A.actions.answer({dataset: {pos: '0'}});
+  sprintStore = {...sb.store};
+}
+
+// Reload in the middle of a session: the session's files load before it draws.
+{
+  const sb = sandbox(sprintStore, {hash: '#practice/daily'});
+  await flush();
+  const ids = sb.context.Store.state.sessions.daily.ids;
+  check(/questionPanel|feedback/.test(sb.elements.app.innerHTML) && sameSet(sb.dataRequests(), filesOfIds(sb.context, ids)),
+    'deep link #practice/daily restores after reload');
+}
+{
+  // Reload during a mock exam section.
+  const sb0 = sandbox();
+  await flush();
+  const m = sb0.context.App.mockBuild('mini');
+  m.sections[0].started = true;
+  m.index = 2;
+  sb0.context.Store.state.mock = m;
+  sb0.context.Store.save();
+  const sb = sandbox(sb0.store, {hash: '#mock/run'});
+  await flush();
+  const out = sb.elements.app.innerHTML;
+  check(/qNav/.test(out) && /第 3 題/.test(out) && sameSet(sb.dataRequests(), filesOfIds(sb.context, m.sections[0].ids)),
+    'deep link #mock/run loads only the current section and restores');
+  // Submitting every section loads the rest before grading.
+  const A = sb.context.App;
+  for (let i = 0; i < 3 && sb.context.Store.state.mock; i++) { A.actions['mock-submit'](); await flush(); }
+  check(!sb.context.Store.state.mock && sb.context.Store.state.lastMock?.summary, 'mock grades after loading unseen sections');
+  sb.context.location.hash = '#mock/review';
+  await A.render();
+  check(/逐題檢討/.test(sb.elements.app.innerHTML), 'mock review renders');
+}
+
+// Furigana off → no ruby files; turning it on loads the screen's ruby files and redraws.
+{
+  const off = sandbox();
+  await flush();
+  off.context.Store.state.settings.furigana = false;
+  off.context.Store.save();
+  const sb = sandbox(off.store);
+  await flush();
+  const {App: A} = sb.context;
+  A.practice.startDrill('grammar', '文法形式', 10);
+  sb.context.location.hash = '#practice/drill';
+  await A.render();
+  check(sb.requests.every(r => !r.startsWith('ruby/')) && !/<ruby>/.test(sb.elements.app.innerHTML), 'furigana off: no ruby files');
+  A.actions['toggle-ruby']();
+  await flush();
+  const want = filesOfIds(sb.context, sb.context.Store.state.sessions.drill.ids).map(f => 'ruby/' + path.basename(f));
+  check(sameSet(sb.requests.filter(r => r.startsWith('ruby/')), want) && /<ruby>/.test(sb.elements.app.innerHTML),
+    'turning furigana on loads the ruby files and redraws');
+}
+
+// Notes page loads only that kind's note files.
+{
+  const sb = sandbox({}, {hash: '#notes/confuse'});
+  await flush();
+  const want = sb.context.Bank.catalog.files.filter(f => f.notes.some(n => n.kind === 'confuse')).map(f => f.file);
+  check(sameSet(sb.dataRequests(), want) && /class="note"/.test(sb.elements.app.innerHTML), 'notes page loads only its note files');
+}
+
+// A failed file shows a retry message; retry loads it.
+{
+  const sb = sandbox({}, {quiet: true});
+  await flush();
+  const {App: A, Store} = sb.context;
+  A.practice.startDrill('reading', '短文理解', 5);
+  const files = filesOfIds(sb.context, Store.state.sessions.drill.ids);
+  files.forEach(f => sb.fail.add(f));
+  sb.context.location.hash = '#practice/drill';
+  await A.render();
+  check(/題目載入失敗/.test(sb.elements.app.innerHTML) && /data-action="retry-load"/.test(sb.elements.app.innerHTML), 'load failure shows a retry message');
+  sb.fail.clear();
+  A.actions['retry-load']();
+  await flush();
+  check(/questionPanel/.test(sb.elements.app.innerHTML), 'retry loads the file and draws the page');
+}
+
+// A load finishing after the user has moved on does not overwrite the new page.
+{
+  const hold = new Set();
+  const sb = sandbox({}, {hold});
+  await flush();
+  const {App: A, Store} = sb.context;
+  A.practice.startDrill('listening', '即時応答', 5);
+  filesOfIds(sb.context, Store.state.sessions.drill.ids).forEach(f => hold.add(f));
+  sb.context.location.hash = '#practice/drill';
+  const pending = A.render();
+  sb.context.location.hash = '#settings';
+  await A.render();
+  [...hold].forEach(sb.release);
+  await pending;
+  await flush();
+  check(/id="examDate"/.test(sb.elements.app.innerHTML), 'late load does not replace the page the user moved to');
+}
+
+// The index agrees with the bank once everything is loaded.
 const {context, store, elements, skipped} = sandbox();
-const {App: A, Store, topic} = context;
-console.log(`questions ${A.byId.size}, notes ${topic.notes.length}, skipped data/ruby files: ${skipped.length}, ` +
+await flush();
+const {App: A, Store, topic, Bank} = context;
+await Bank.ensure(allFiles(context), {ruby: true});
+{
+  const key = q => [q.id, q.cat, q.type, q.passageId || ''].join('|');
+  const full = Bank.questions.map(key).sort();
+  check(sameSet(A.questions.map(key), full) && A.questions.length === Bank.questions.length, `index matches the loaded bank (${Bank.questions.length} questions)`);
+  check(sameSet(A.notes.map(n => n.id + n.kind), Bank.notes.map(n => n.id + n.kind)), `index matches the loaded notes (${Bank.notes.length})`);
+  const tally = list => JSON.stringify(Object.entries(list.reduce((t, q) => ((t[q.cat + '/' + q.type] = (t[q.cat + '/' + q.type] || 0) + 1), t), {})).sort());
+  check(tally(A.questions) === tally(Bank.questions), 'per-type counts from the index equal the full bank');
+  const st = A.stats();
+  check(Object.values(st.cats).reduce((n, c) => n + c.total, 0) === Bank.questions.length, 'stats totals equal the full bank');
+  const groupsFull = new Map();
+  for (const q of Bank.questions) groupsFull.set(q.passageId || q.id, (groupsFull.get(q.passageId || q.id) || 0) + 1);
+  check([...A.groups].every(([k, g]) => groupsFull.get(k) === g.length) && A.groups.size === groupsFull.size, 'passage groups from the index equal the bank');
+  check(Bank.catalog.files.every(f => f.ruby === 'ruby/' + path.basename(f.file)), 'index maps every bank file to its ruby file');
+}
+// Full question objects in index order, for the checks below.
+const Q = A.questions.map(q => Bank.question(q.id));
+console.log(`questions ${A.byId.size}, notes ${A.notes.length}, skipped scripts: ${skipped.length}, ` +
   `furigana entries ${Object.keys(context.Ruby.map).length}`);
-for (const s of skipped.filter(s => s.includes('error'))) console.log('  ' + s);
-check(A.byId.size >= 100, 'bank loaded (legacy + data)');
+check(A.byId.size >= 100 && Q.every(Boolean), 'bank loaded (legacy + data)');
 check(/^\d{4}-\d{2}-\d{2}$/.test(topic.defaultExamDate), 'default exam date ' + topic.defaultExamDate);
 check(new Date(topic.defaultExamDate + 'T00:00:00').getDay() === 0, 'default exam date is a Sunday');
 
 // ---------- Leitner ----------
 const t = Store.today();
-const q0 = A.questions.find(q => !q.passage);
+const q0 = Q.find(q => !q.passage);
 Store.state.settings.examDate = Store.addDays(t, 40);
 Store.grade(q0.id, true);
 let r = Store.state.records[q0.id];
@@ -170,7 +352,7 @@ context.location.hash = '#practice/daily';
 const s = Store.state.sessions.daily;
 A.actions.answer({dataset: {pos: '0'}});
 check(Boolean(s.answers[0]), 'answering records the choice');
-s.answers = s.ids.map(id => ({choice: 0, ok: A.byId.get(id).answer === 0, guessed: false, prevBox: 0}));
+s.answers = s.ids.map(id => ({choice: 0, ok: Bank.question(id).answer === 0, guessed: false, prevBox: 0}));
 s.done = true;
 A.render();
 check(/本回練習完成/.test(elements.app.innerHTML), 'session results render');
@@ -180,19 +362,19 @@ check(/本回練習完成/.test(elements.app.innerHTML), 'session results render
   const {Ruby, Bank} = context;
   const RAW = /\{[^{}|]+\|[^{}|]+\}/;
   const strip = html => html.replace(/<rt>.*?<\/rt>/g, '').replace(/<[^>]+>/g, '');
-  check(scripts.filter(s => s.startsWith('ruby/')).length >= 27, 'index.html loads ruby/ files');
+  check(Bank.catalog.files.filter(f => f.ruby).length >= 26, 'manifest lists ruby/ files');
   for (const [type, t] of Object.entries(Bank.TYPES)) {
     if (!t.instruction) continue;
     const p = Ruby.get('#' + type).p;
     check(typeof p === 'string' && Ruby.strip(p) === t.instruction && p.includes('{'), 'instruction furigana matches ' + type);
   }
-  check(A.questions.every(q => A.splitPrompt(q).stem === Bank.stem(q).stem), 'splitPrompt uses Bank.stem');
+  check(Q.every(q => A.splitPrompt(q).stem === Bank.stem(q).stem), 'splitPrompt uses Bank.stem');
 
   // Annotate the first kanji run of a string with a dummy reading.
   const mark = text => text.replace(/[㐀-鿿々]+/, k => `{${k}|${'か'.repeat(k.length)}}`);
   const saved = {...Ruby.map};
   const render = (q, opts = {}) => A.questionHtml(q, {order: q.options.map((_, i) => i), reveal: true, ...opts});
-  const plainQ = A.questions.find(q => q.type === '文法形式' && /[㐀-鿿]/.test(A.splitPrompt(q).stem) && q.options.some(o => /[㐀-鿿]/.test(o)));
+  const plainQ = Q.find(q => q.type === '文法形式' && /[㐀-鿿]/.test(A.splitPrompt(q).stem) && q.options.some(o => /[㐀-鿿]/.test(o)));
   const stem = A.splitPrompt(plainQ).stem;
   const oi = plainQ.options.findIndex(o => /[㐀-鿿]/.test(o));
   Ruby.add(plainQ.id, {p: mark(stem), o: plainQ.options.map((o, i) => (i === oi ? mark(o) : o)), x: plainQ.explanation});
@@ -213,13 +395,13 @@ check(/本回練習完成/.test(elements.app.innerHTML), 'session results render
   check(!render(plainQ).includes('<b>'), 'mismatched annotation is not injected as html');
 
   // Passage blank highlight survives ruby; brackets around ruby still highlight.
-  const textQ = A.questions.find(q => q.type === '文章文法' && q.passageId);
+  const textQ = Q.find(q => q.type === '文章文法' && q.passageId);
   if (textQ) {
     Ruby.add('@' + textQ.passageId, {t: textQ.passage.replace(/[㐀-鿿々]+/g, k => `{${k}|${'か'.repeat(k.length)}}`)});
     out = render(textQ);
     check(/<mark>（\s*\d+\s*）<\/mark>/.test(out) && /<ruby>/.test(out) && !RAW.test(out), 'passage ruby keeps the blank highlight');
   }
-  const paraQ = A.questions.find(q => q.type === '近義改寫' && /【[^】]*[㐀-鿿][^】]*】/.test(A.splitPrompt(q).stem));
+  const paraQ = Q.find(q => q.type === '近義改寫' && /【[^】]*[㐀-鿿][^】]*】/.test(A.splitPrompt(q).stem));
   if (paraQ) {
     const st = A.splitPrompt(paraQ).stem;
     Ruby.add(paraQ.id, {p: st.replace(/[㐀-鿿々]+/g, k => `{${k}|${'か'.repeat(k.length)}}`)});
@@ -228,7 +410,7 @@ check(/本回練習完成/.test(elements.app.innerHTML), 'session results render
   }
 
   // Listening: readings in the transcript, plain text to speech, options hidden before answering.
-  const lq = A.questions.find(q => q.audio && q.audio.spokenOptions && q.audio.script.some(l => /[㐀-鿿]/.test(l[1])));
+  const lq = Q.find(q => q.audio && q.audio.spokenOptions && q.audio.script.some(l => /[㐀-鿿]/.test(l[1])));
   if (lq) {
     Ruby.add(lq.id, {
       sc: mark(lq.audio.scene), qn: mark(lq.audio.question), s: lq.audio.script.map(l => mark(l[1])),
@@ -253,7 +435,7 @@ check(/本回練習完成/.test(elements.app.innerHTML), 'session results render
 
   // Every page with dummy marks on every question and note: no raw marks leak.
   const dummy = text => (typeof text === 'string' ? text.replace(/[㐀-鿿々]+/g, k => `{${k}|${'か'.repeat(k.length)}}`) : text);
-  for (const q of A.questions) {
+  for (const q of Q) {
     const e = {x: dummy(q.explanation), o: q.options.map(dummy)};
     if (q.audio) Object.assign(e, {sc: dummy(q.audio.scene), qn: dummy(q.audio.question), s: q.audio.script.map(l => dummy(l[1]))});
     else e.p = dummy(A.splitPrompt(q).stem);
@@ -261,7 +443,7 @@ check(/本回練習完成/.test(elements.app.innerHTML), 'session results render
     Ruby.add(q.id, e);
     if (q.passageId) Ruby.add('@' + q.passageId, {t: dummy(q.passage)});
   }
-  for (const n of topic.notes) Ruby.add(n.id, {t: dummy(n.title), e: dummy(n.example), ie: (n.items || []).map(i => dummy(i.example))});
+  for (const n of Bank.notes) Ruby.add(n.id, {t: dummy(n.title), e: dummy(n.example), ie: (n.items || []).map(i => dummy(i.example))});
   for (const q of A.questions.slice(0, 60)) Store.grade(q.id, false);
   A.practice.startDaily(true);
   Store.state.mock = A.mockBuild('mini');

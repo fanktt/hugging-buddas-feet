@@ -25,15 +25,16 @@ open n3-sprint/dist/index.html
 
 ## 技術
 
-原生 HTML、CSS、JavaScript，沒有框架、打包工具或相依套件。題庫是直接以 `<script>` 載入的 JS 檔，進度存在瀏覽器的 `localStorage`，沒有帳號也沒有伺服器。
+原生 HTML、CSS、JavaScript，沒有框架、打包工具或相依套件。開站只載入 App 與一份小索引（`manifest.js`）；題庫與注音是 JS 檔，用到哪些題目才以動態 `<script>` 載入對應的檔（所以直接開 `file://` 也能用）。進度存在瀏覽器的 `localStorage`，沒有帳號也沒有伺服器。
 
 ## 專案結構
 
 ```
 n3-sprint/
   dist/            發佈的網站（就是線上看到的全部內容）
-    data/          題庫與筆記，一個檔案一種題型
-    ruby/          假名注音，與題庫檔一一對應
+    manifest.js    題庫索引（由 tools/manifest.mjs 產生）
+    data/          題庫與筆記，一個檔案一種題型，按需載入
+    ruby/          假名注音，與題庫檔一一對應，按需載入
   tools/           維護工具與規範（不會發佈）
 .github/workflows/ 推上 main 後自動發佈到 GitHub Pages
 ```
@@ -43,9 +44,10 @@ n3-sprint/
 需要 Node.js（僅用內建模組，無相依套件）。在 `n3-sprint/` 下執行：
 
 ```sh
-node tools/validate.mjs          # 題庫格式、重複、解析寫法
+node tools/manifest.mjs          # 重產題庫索引（新增或修改題庫、注音檔後）
+node tools/validate.mjs          # 題庫格式、重複、解析寫法、索引是否最新
 node tools/furigana.mjs check    # 注音與原文逐字比對、漏標
-node tools/smoke.mjs             # App 冒煙測試
+node tools/smoke.mjs             # App 冒煙測試（含按需載入）
 ```
 
 新增或修改題目請先讀 [`n3-sprint/tools/AUTHORING.md`](n3-sprint/tools/AUTHORING.md)，注音請讀 [`n3-sprint/tools/FURIGANA.md`](n3-sprint/tools/FURIGANA.md)。

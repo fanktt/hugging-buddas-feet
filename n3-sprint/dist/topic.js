@@ -1,11 +1,7 @@
 // Topic pack: everything exam-specific lives here so app.js stays generic.
-// Data comes from the Bank registry (bank.js + data/*.js); the two legacy
-// files are merged in before the app reads Bank.questions.
+// Questions and notes come from the Bank registry: manifest.js lists them up front
+// (Bank.catalog) and their text is loaded on demand with Bank.ensure.
 (() => {
-  const Bank = globalThis.Bank;
-  if (typeof globalThis.knowledge !== 'undefined') Bank.legacy(globalThis.knowledge);
-  if (typeof globalThis.reading !== 'undefined') Bank.legacy(globalThis.reading);
-  if (Bank.errors.length) console.warn('Bank registry problems:', Bank.errors);
 
   // Default exam day: the next first Sunday of July or December.
   function nextExamDate(from = new Date()) {
@@ -95,9 +91,6 @@
         ]
       }
     },
-    passScore: {total: 95, section: 19, sectionMax: 60},
-
-    questions: Bank.questions,
-    notes: Bank.notes
+    passScore: {total: 95, section: 19, sectionMax: 60}
   };
 })();

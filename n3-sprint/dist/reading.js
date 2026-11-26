@@ -130,3 +130,6 @@
 
   globalThis.reading = items;
 })();
+
+// Merge into the registry (this file is loaded on demand, after bank.js).
+Bank.legacy(globalThis.reading);
