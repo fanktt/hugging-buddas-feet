@@ -416,6 +416,7 @@
       render({keepScroll: true, after: () => document.querySelector('[data-action="toggle-ruby"]')?.focus({preventScroll: true})});
     },
     'retry-load': () => render(retryOpts),
+    'copy-ai': el => A.copyAiPrompt(el),
     'export': exportProgress,
     'reset': () => {
       if (!confirm('確定清除所有作答紀錄、複習排程與模考紀錄？此動作無法復原（考試日與每日目標會保留）。')) return;

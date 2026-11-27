@@ -174,7 +174,8 @@
         (a.ok && !a.guessed ? '<button type="button" class="secondary" data-action="guess">我是猜的</button>' : '') +
         `<button type="button" class="primary" data-action="next" id="nextBtn">${last ? '查看本回成績' : '下一題'}<span class="kbd" aria-hidden="true">Enter</span></button>` +
         '</div></div>' +
-        `<p class="explain">${A.rb.explanation(q)}</p></div>`;
+        `<p class="explain">${A.rb.explanation(q)}</p>` +
+        A.aiButtonHtml(q, {order: s.orders[q.id], chosen: a.choice, guessed: a.guessed}) + '</div>';
     }
     const done = s.answers.filter(Boolean).length;
     return `<div class="practice${q.passage ? ' wide' : ''}">` +

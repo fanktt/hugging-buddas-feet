@@ -315,6 +315,22 @@ const groupsContiguous = list => {
   }
   return true;
 };
+// ---------- AI prompt ----------
+{
+  const all = Q.every(q => {
+    const order = A.permutation(q.options.length);
+    const wrong = order.find(o => o !== q.answer);
+    const text = A.aiPrompt(q, {order, chosen: wrong});
+    const numbered = order.every((orig, i) => text.includes(`${i + 1}. ${q.options[orig]}`));
+    return numbered && text.includes(`【正確答案】${order.indexOf(q.answer) + 1}. ${q.options[q.answer]}`) &&
+      text.includes(q.explanation) && (!q.passage || text.includes(q.passage)) &&
+      (!q.audio || q.audio.script.every(([, line]) => text.includes(line))) && !/\{[^}|]+\|/.test(text);
+  });
+  check(all, 'AI prompt carries options in shown order, answer, explanation, passage and script');
+  const q = Q.find(x => !x.passage && !x.audio);
+  check(A.aiPrompt(q, {}).includes('【我的答案】未作答'), 'AI prompt handles unanswered items');
+  check(A.aiPrompt(q, {chosen: q.answer}).includes('答對了') && A.aiPrompt(q, {chosen: q.answer, guessed: true}).includes('猜的'), 'AI prompt reflects correct and guessed answers');
+}
 const daily = A.practice.buildDaily();
 check(daily.length >= Math.min(20, A.byId.size), `daily sprint has ${daily.length} items`);
 check(new Set(daily.map(q => q.id)).size === daily.length, 'daily sprint has no duplicates');

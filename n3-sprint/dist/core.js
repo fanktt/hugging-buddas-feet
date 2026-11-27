@@ -341,9 +341,88 @@ globalThis.App = (() => {
       `<p class="reviewAns"><span>你的答案</span><bdi lang="ja">${yours}</bdi></p>` +
       `<p class="reviewAns right"><span>正解</span><bdi lang="ja">${rb.option(q, q.answer)}</bdi></p>` +
       `<p class="explain">${rb.explanation(q)}</p>` +
+      aiButtonHtml(q, {order, chosen, guessed}) +
       (q.passage ? `<details><summary>查看本文</summary><div class="passage" lang="ja">${rb.passage(q)}</div></details>` : '') +
       (q.audio ? `<details><summary>查看文字稿</summary>${scriptHtml(q, order || q.options.map((_, i) => i), {withOptions: true})}</details>` : '') +
       '</article>';
+  }
+
+  // ---------- "ask an AI" prompt ----------
+  // Plain-text prompt (original bank text, no furigana marks) the learner can paste into
+  // a chat AI. Options are numbered in the order they were shown.
+  function aiPrompt(q, {order, chosen, guessed} = {}) {
+    order = order && order.length === q.options.length ? order : q.options.map((_, i) => i);
+    const num = orig => order.indexOf(orig) + 1;
+    const opt = orig => `${num(orig)}. ${q.options[orig]}`;
+    const none = chosen === undefined || chosen === null;
+    const ok = !none && chosen === q.answer;
+    const situation = none ? '這題我沒有作答' : ok ? (guessed ? '這題我答對了，但其實是猜的' : '這題我答對了，但想把其他選項也弄懂') : '這題我答錯了';
+    const {instruction, stem} = splitPrompt(q);
+    const parts = [`我正在準備日本語能力試驗 JLPT N3。${situation}，請用繁體中文（台灣用語）幫我講解。`];
+    parts.push(`【題型】${q.type}（${typeInfo(q.type).ja}）`);
+    if (q.passage) parts.push(`【本文】\n${q.passage}`);
+    if (q.audio) {
+      const a = q.audio;
+      const lines = [];
+      if (a.scene) lines.push(`旁白：${a.scene}`);
+      a.script.forEach(([sp, line]) => lines.push(`${SPEAKER[sp] || sp}：${line}`));
+      if (a.question) lines.push(`旁白：${a.question}`);
+      parts.push(`【聽力文字稿】\n${lines.join('\n')}`);
+    } else {
+      parts.push(`【題目】\n${[instruction.trim(), stem.trim()].filter(Boolean).join('\n')}`);
+    }
+    parts.push(`【選項】\n${order.map(opt).join('\n')}`);
+    parts.push(`【我的答案】${none ? '未作答' : opt(chosen)}\n【正確答案】${opt(q.answer)}`);
+    parts.push(`【題目附的解析】\n${q.explanation}`);
+    parts.push('請幫我：\n' +
+      (ok && !guessed ? '1. 說明正解為什麼對，判斷的關鍵在哪裡。\n'
+        : '1. 說明我的答案錯在哪裡、正解為什麼才對，判斷的關鍵在哪裡。\n') +
+      '2. 逐一解釋每個選項的讀音、意思與用法，各舉一個簡單的例句（附中文翻譯）。\n' +
+      '3. 如果選項之間有容易混淆的字詞或文法，整理它們的差別。');
+    return parts.join('\n\n');
+  }
+
+  function aiButtonHtml(q, {order, chosen, guessed} = {}) {
+    return `<div class="aiRow"><button type="button" class="secondary small" data-action="copy-ai" data-id="${esc(q.id)}"` +
+      ` data-order="${esc((order || []).join(','))}" data-chosen="${chosen ?? ''}" data-guessed="${guessed ? 1 : ''}">複製 AI 提問</button>` +
+      '<span class="hint">貼到 AI 聊天，請它講解錯因和每個選項。</span></div>';
+  }
+
+  function copyAiPrompt(el) {
+    const q = question(el.dataset.id);
+    if (!q) return;
+    const order = el.dataset.order ? el.dataset.order.split(',').map(Number) : undefined;
+    const chosen = el.dataset.chosen === '' ? undefined : Number(el.dataset.chosen);
+    const text = aiPrompt(q, {order, chosen, guessed: Boolean(el.dataset.guessed)});
+    const row = el.closest('.aiRow');
+    const done = () => {
+      el.textContent = '已複製 ✓';
+      globalThis.App.announce?.('已複製提問，可以貼到 AI 聊天了。');
+      setTimeout(() => { if (el.isConnected) el.textContent = '複製 AI 提問'; }, 2000);
+    };
+    // Clipboard can be unavailable (insecure context, permissions): show the text to copy by hand.
+    const manual = () => {
+      let box = row.nextElementSibling;
+      if (!box || !box.classList.contains('aiText')) {
+        box = document.createElement('textarea');
+        box.className = 'aiText';
+        box.readOnly = true;
+        box.rows = 8;
+        box.setAttribute('aria-label', 'AI 提問全文');
+        row.after(box);
+      }
+      box.value = text;
+      box.focus();
+      box.select();
+      globalThis.App.announce?.('無法自動複製，請手動複製下方文字。');
+    };
+    if (!navigator.clipboard?.writeText) return manual();
+    // A clipboard write that never settles (some browsers wait on a permission prompt)
+    // also falls back after a moment.
+    let settled = false;
+    const once = fn => () => { if (!settled) { settled = true; fn(); } };
+    setTimeout(once(manual), 1500);
+    navigator.clipboard.writeText(text).then(once(done), once(manual));
   }
 
   // Per-type score table from [{q, ok}] items.
@@ -368,7 +447,7 @@ globalThis.App = (() => {
     questions, notes, byId, byCat, byType, groups, groupKey, category, typeInfo, typesOf,
     question, note, optionCount, load, loaded,
     stats, shuffle, permutation, tiers, takeUnits, ranked,
-    questionHtml, reviewHtml, typeScoreTable, scriptHtml, splitPrompt, promptHtml,
+    questionHtml, reviewHtml, typeScoreTable, aiPrompt, aiButtonHtml, copyAiPrompt, scriptHtml, splitPrompt, promptHtml,
     ja, rb, rubyOn, rubyToggleHtml,
     ui, audioMode, playAudio, stopAudio,
     // needs[page](args) lists the question/note ids a page shows; the router loads them first.
