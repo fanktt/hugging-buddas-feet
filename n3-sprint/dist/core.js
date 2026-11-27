@@ -118,7 +118,7 @@ globalThis.App = (() => {
       else if (Store.isDue(r)) due.push(q);
       else seen.push(q);
     }
-    due.sort((a, b) => rec[a.id].due.localeCompare(rec[b.id].due) || rec[a.id].box - rec[b.id].box);
+    due.sort((a, b) => rec[a.id].dueAt - rec[b.id].dueAt || rec[a.id].box - rec[b.id].box);
     seen.sort((a, b) => rec[a.id].box - rec[b.id].box || String(rec[a.id].last).localeCompare(String(rec[b.id].last)));
     return {due, fresh: shuffle(fresh), seen};
   }

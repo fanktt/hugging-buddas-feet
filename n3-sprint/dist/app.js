@@ -32,6 +32,8 @@
     const daily = s.sessions.daily;
     const resume = daily && !daily.done && daily.created === Store.today();
     const answeredInDaily = resume ? daily.answers.filter(Boolean).length : 0;
+    // The same cached list startDaily() will use, so the count matches the sprint.
+    const nextCount = resume ? 0 : A.practice.prepareDaily().length;
     const misses = A.questions.reduce((n, q) => n + (s.records[q.id]?.miss ? 1 : 0), 0);
 
     let html = '';
@@ -41,9 +43,10 @@
     }
     html += '<section class="today">' +
       '<div class="todayMain"><h1 tabindex="-1">今日衝刺</h1>' +
-      `<p class="sub">每回 ${pack.sprintSize} 題：到期複習 → 弱點題型新題 → 其他新題，四科輪流出。</p>` +
+      `<p class="sub">每回約 ${pack.sprintSize} 題（同一篇文章的題目會一起出）：到期複習 → 弱點題型新題 → 其他新題，四科輪流出。</p>` +
       '<button type="button" class="primary big" data-action="start-daily">' +
-      `${resume ? `繼續今日衝刺<small>${answeredInDaily} / ${daily.ids.length}</small>` : '開始今日衝刺'}</button></div>` +
+      `${resume ? `繼續今日衝刺<small>${answeredInDaily} / ${daily.ids.length}</small>`
+        : `開始今日衝刺${nextCount ? `<small>這回 ${nextCount} 題</small>` : ''}`}</button></div>` +
       '<ul class="statRow">' +
       `<li class="stat"><span class="statLabel">到期複習</span><b class="statNum">${st.due}<small> 題</small></b>` +
       `<span class="statSub">${st.due ? '會排在衝刺最前面' : '目前沒有到期'}</span></li>` +
@@ -140,7 +143,8 @@
   // ---------- mistakes ----------
   function boxLabel(r) {
     if (!r) return '';
-    const due = r.due <= Store.today() ? '今天到期' : `${A.fmtDate(r.due)} 到期`;
+    const left = Store.untilDue(r);
+    const due = left ? `再做 ${left} 題後到期` : '現在到期';
     return `<span class="boxState box${r.box}" title="Leitner 第 ${r.box} 盒">` +
       `<span class="boxDots" aria-hidden="true">${'●'.repeat(r.box)}${'○'.repeat(Store.MAX_BOX - r.box)}</span>` +
       `第 ${r.box} 盒・${due}・答對 ${r.correct}/${r.count}</span>`;

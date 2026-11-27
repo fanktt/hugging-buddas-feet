@@ -72,7 +72,7 @@
   function buildMistakes(cat, type) {
     const pool = mistakePool(cat, type);
     const rec = Store.state.records;
-    pool.sort((a, b) => rec[a.id].due.localeCompare(rec[b.id].due));
+    pool.sort((a, b) => rec[a.id].dueAt - rec[b.id].dueAt);
     return A.takeUnits(pool, pack.sprintSize).units.flat()
       // Only keep group-mates that are mistakes too, but keep their order.
       .filter(q => rec[q.id]?.miss);
@@ -162,10 +162,9 @@
     let after = '';
     if (answered) {
       const box = Store.state.records[q.id]?.box ?? 0;
-      const due = Store.state.records[q.id]?.due;
       const status = a.ok
-        ? (a.guessed ? '已標記為猜的，明天會再出現。' : `記住了！升到第 ${box} 盒，${due ? A.fmtDate(due) : ''} 再複習。`)
-        : '已收進錯題本，明天會再出現。';
+        ? (a.guessed ? '已標記為猜的，下一回會再出現。' : `記住了！升到第 ${box} 盒，再做 ${Store.gapFor(box)} 題後複習。`)
+        : '已收進錯題本，下一回會再出現。';
       // Verdict and the next button sit on one row right under the choices;
       // the explanation follows. On phones the button row sticks to the bottom.
       after = `<div class="feedback ${a.ok && !a.guessed ? 'ok' : 'miss'}">` +
@@ -196,7 +195,7 @@
     return '<div class="practice">' +
       A.pageHead('本回練習完成', 'Session results', esc(s.title)) +
       `<section class="panel resultPanel"><p class="bigScore"><strong>${correct}</strong><span> / ${s.ids.length} 題答對</span></p>` +
-      `<div><h2>正確率 ${pct(correct, s.ids.length)}%</h2><p class="sub">猜對的題目不算掌握，會和錯題一起在明天複習。</p>` +
+      `<div><h2>正確率 ${pct(correct, s.ids.length)}%</h2><p class="sub">猜對的題目不算掌握，會和錯題一起在下一回複習。</p>` +
       `<div class="actions">${again}<a class="secondary" href="#mistakes">錯題本</a><a class="secondary" href="#home">回作戰板</a></div></div></section>` +
       A.sectionTitle('各題型成績', 'By type') +
       `<section class="panel">${A.typeScoreTable(items.map(x => ({q: x.q, ok: x.a.ok && !x.a.guessed})))}</section>` +

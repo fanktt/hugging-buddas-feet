@@ -267,27 +267,40 @@ check(new Date(topic.defaultExamDate + 'T00:00:00').getDay() === 0, 'default exa
 // ---------- Leitner ----------
 const t = Store.today();
 const q0 = Q.find(q => !q.passage);
-Store.state.settings.examDate = Store.addDays(t, 40);
+const c0 = Store.state.clock;
 Store.grade(q0.id, true);
 let r = Store.state.records[q0.id];
-check(r.box === 1 && r.due === Store.addDays(t, 1), 'correct → box 1, due tomorrow');
+check(Store.state.clock === c0 + 1, 'each answer advances the clock');
+check(r.box === 1 && r.dueAt === Store.state.clock + 60 && !Store.isDue(r), 'correct → box 1, due after 60 answers');
+check(Store.untilDue(r) === 60, 'untilDue counts answers left');
 Store.grade(q0.id, true);
-check(Store.state.records[q0.id].due === Store.addDays(t, 3), 'box 2 → +3 days');
+check(Store.state.records[q0.id].dueAt === Store.state.clock + 150, 'box 2 → +150 answers');
 Store.grade(q0.id, true);
 Store.grade(q0.id, true);
-check(Store.state.records[q0.id].due === Store.addDays(t, 14), 'box 4 → +14 days');
-Store.state.settings.examDate = Store.addDays(t, 9);
 const prev = Store.grade(q0.id, true);
-check(Store.state.records[q0.id].due === Store.addDays(t, 4), 'interval capped at half the days to exam');
+check(Store.state.records[q0.id].dueAt === Store.state.clock + 1000, 'box 5 → +1000 answers');
 Store.markGuessed(q0.id, prev);
 r = Store.state.records[q0.id];
-check(r.box === 4 && r.due === Store.addDays(t, 1) && r.miss, '"guessed" keeps box, due tomorrow, marked miss');
+check(r.box === 4 && Store.isDue(r) && r.miss, '"guessed" keeps box, due now, marked miss');
 Store.grade(q0.id, false);
 r = Store.state.records[q0.id];
-check(r.box === 0 && r.due === Store.addDays(t, 1), 'wrong → box 0, due tomorrow');
-Store.state.settings.examDate = Store.addDays(t, 1);
+check(r.box === 0 && Store.isDue(r) && Store.untilDue(r) === 0, 'wrong → box 0, due now');
 Store.grade(q0.id, true);
-check(Store.state.records[q0.id].due === Store.addDays(t, 1), 'interval at least one day');
+r = Store.state.records[q0.id];
+for (let i = 0; i < 59; i++) Store.state.clock++;
+check(!Store.isDue(r), 'not due one answer early');
+Store.state.clock++;
+check(Store.isDue(r), 'due once the gap has passed');
+{
+  const n = Store.normalize({clock: 7, records: {
+    a: {count: 1, correct: 0, box: 0, due: Store.addDays(t, -2)},
+    b: {count: 1, correct: 1, box: 2, due: Store.addDays(t, 3)},
+    c: {count: 1, correct: 1, box: 1, dueAt: 42}
+  }});
+  check(n.clock === 7 && n.records.a.dueAt === 7, 'v2 past due date → due now');
+  check(n.records.b.dueAt === 7 + 150 && !('due' in n.records.b), 'v2 future due date → gap of its box');
+  check(n.records.c.dueAt === 42, 'dueAt kept as is');
+}
 check(Store.streak() === 1, 'streak counts today');
 
 // ---------- sessions ----------
@@ -309,7 +322,7 @@ check(groupsContiguous(daily), 'daily sprint keeps passage groups together');
 const cats = new Set(daily.map(q => q.cat));
 check(cats.size === Object.keys(A.byCat).length, 'daily sprint mixes all available subjects: ' + [...cats].join(','));
 const due = A.questions.find(q => q.cat === 'vocab' && q.id !== q0.id);
-Store.state.records[due.id] = {count: 1, correct: 0, box: 0, due: t, last: t, miss: true};
+Store.state.records[due.id] = {count: 1, correct: 0, box: 0, dueAt: 0, last: t, miss: true};
 check(A.practice.buildDaily()[0].id === due.id || A.practice.buildDaily().slice(0, 4).some(q => q.id === due.id), 'due review comes first');
 
 const drill = A.practice.buildDrill('reading', '', 10);

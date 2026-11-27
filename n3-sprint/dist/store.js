@@ -3,8 +3,11 @@ globalThis.Store = (() => {
   const pack = globalThis.topic;
   const KEY = 'study-sprint.v2.' + pack.id;
   const OLD_KEY = 'study-sprint.v1.' + pack.id;
-  const INTERVALS = [1, 3, 7, 14, 30];
-  const MAX_BOX = INTERVALS.length;
+  // Reviews are spaced by answers, not days: `clock` counts every graded answer and a
+  // record is due once the clock reaches its `dueAt`. A miss is due again right away,
+  // so it comes back in the next session; correct answers wait GAPS[box - 1] answers.
+  const GAPS = [60, 150, 300, 600, 1000];
+  const MAX_BOX = GAPS.length;
 
   // ---------- dates (local calendar days as YYYY-MM-DD) ----------
   const today = () => new Date().toLocaleDateString('sv-SE');
@@ -19,8 +22,9 @@ globalThis.Store = (() => {
   // ---------- state shape ----------
   function blank() {
     return {
-      version: 2,
-      records: {},      // id -> {count, correct, box, due, last, miss}
+      version: 3,
+      clock: 0,         // graded answers so far; the time axis for reviews
+      records: {},      // id -> {count, correct, box, dueAt, last, miss}
       days: {},         // date -> answered count
       sessions: {},     // practice sessions by key
       settings: {examDate: pack.defaultExamDate, dailyGoal: pack.defaultDailyGoal, rate: 1, furigana: true},
@@ -38,15 +42,17 @@ globalThis.Store = (() => {
   function normalize(raw) {
     const s = blank();
     if (!isObj(raw)) return s;
+    s.clock = Math.max(0, Math.floor(num(raw.clock)));
     if (isObj(raw.records)) {
       for (const [id, r] of Object.entries(raw.records)) {
         if (!isObj(r)) continue;
         const count = Math.max(0, num(r.count));
+        const box = Math.min(MAX_BOX, Math.max(0, Math.floor(num(r.box))));
         s.records[id] = {
           count,
           correct: Math.min(count, Math.max(0, num(r.correct))),
-          box: Math.min(MAX_BOX, Math.max(0, Math.floor(num(r.box)))),
-          due: validDate(r.due) ? r.due : today(),
+          box,
+          dueAt: Number.isFinite(r.dueAt) ? Math.max(0, Math.floor(r.dueAt)) : fromDueDate(r.due, box, s.clock),
           last: validDate(r.last) ? r.last : null,
           miss: Boolean(r.miss)
         };
@@ -75,10 +81,16 @@ globalThis.Store = (() => {
     return s;
   }
 
+  // v2 scheduled by calendar date (`due`): already due stays due, a future date
+  // becomes the answer gap of its box.
+  function fromDueDate(due, box, clock) {
+    if (!validDate(due) || due <= today()) return clock;
+    return clock + gapFor(box);
+  }
+
   // v1: records{id:{count,correct,wrong}}, days{date:count}
   function migrate(old) {
     const s = blank();
-    const t = today();
     if (isObj(old?.records)) {
       for (const [id, r] of Object.entries(old.records)) {
         if (!isObj(r)) continue;
@@ -88,7 +100,7 @@ globalThis.Store = (() => {
           count,
           correct: Math.min(count, Math.max(0, num(r.correct))),
           box: wrong ? 0 : 1,
-          due: wrong ? t : addDays(t, 1),
+          dueAt: wrong ? 0 : gapFor(1),
           last: null,
           miss: wrong
         };
@@ -143,11 +155,9 @@ globalThis.Store = (() => {
     return diffDays(today(), state.settings.examDate);
   }
 
-  // Interval never exceeds half the days left before the exam (at least 1 day).
-  function intervalFor(box) {
-    const base = INTERVALS[Math.max(0, box - 1)];
-    const cap = Math.max(1, Math.floor(daysToExam() / 2));
-    return Math.min(base, cap);
+  // Answers to wait before a record in `box` is due again (box 0 = a miss: none).
+  function gapFor(box) {
+    return box > 0 ? GAPS[Math.min(box, MAX_BOX) - 1] : 0;
   }
 
   function blankRecord() {
@@ -159,18 +169,18 @@ globalThis.Store = (() => {
     const prev = state.records[id] ? {...state.records[id]} : null;
     const r = state.records[id] ? {...state.records[id]} : blankRecord();
     const t = today();
+    state.clock++;
     r.count++;
     r.last = t;
     if (ok) {
       r.correct++;
       r.box = Math.min(MAX_BOX, r.box + 1);
-      r.due = addDays(t, intervalFor(r.box));
       r.miss = false;
     } else {
       r.box = 0;
-      r.due = addDays(t, 1);
       r.miss = true;
     }
+    r.dueAt = state.clock + gapFor(r.box);
     state.records[id] = r;
     if (countDay) state.days[t] = (state.days[t] || 0) + 1;
     return prev;
@@ -182,12 +192,17 @@ globalThis.Store = (() => {
     if (!r) return;
     r.correct = Math.max(0, r.correct - 1);
     r.box = prev ? prev.box : 0;
-    r.due = addDays(today(), 1);
+    r.dueAt = state.clock;
     r.miss = true;
   }
 
   function isDue(r) {
-    return Boolean(r && r.count > 0 && r.due <= today());
+    return Boolean(r && r.count > 0 && r.dueAt <= state.clock);
+  }
+
+  // Answers left before the record is due (0 = due now).
+  function untilDue(r) {
+    return Math.max(0, r.dueAt - state.clock);
   }
 
   function streak() {
@@ -220,8 +235,8 @@ globalThis.Store = (() => {
     get storageOk() { return storageOk; },
     get migrated() { return migrated; },
     get revision() { return revision; },
-    INTERVALS, MAX_BOX,
+    GAPS, MAX_BOX,
     today, addDays, diffDays, validDate,
-    save, grade, markGuessed, isDue, streak, daysToExam, intervalFor, reset, replace, normalize
+    save, grade, markGuessed, isDue, untilDue, streak, daysToExam, gapFor, reset, replace, normalize
   };
 })();
